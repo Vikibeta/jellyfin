@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Entities;
-using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Drawing;
 using MediaBrowser.Model.Entities;
 
@@ -21,10 +20,10 @@ namespace MediaBrowser.Controller.Drawing
         IReadOnlyCollection<string> SupportedInputFormats { get; }
 
         /// <summary>
-        /// Gets the image enhancers.
+        /// Gets a value indicating whether [supports image collage creation].
         /// </summary>
-        /// <value>The image enhancers.</value>
-        IImageEnhancer[] ImageEnhancers { get; }
+        /// <value><c>true</c> if [supports image collage creation]; otherwise, <c>false</c>.</value>
+        bool SupportsImageCollageCreation { get; }
 
         /// <summary>
         /// Gets the dimensions of the image.
@@ -42,27 +41,11 @@ namespace MediaBrowser.Controller.Drawing
         ImageDimensions GetImageDimensions(BaseItem item, ItemImageInfo info);
 
         /// <summary>
-        /// Gets the dimensions of the image.
+        /// Gets the blurhash of the image.
         /// </summary>
-        /// <param name="item">The base item.</param>
-        /// <param name="info">The information.</param>
-        /// <param name="updateItem">Whether or not the item info should be updated.</param>
-        /// <returns>ImageDimensions</returns>
-        ImageDimensions GetImageDimensions(BaseItem item, ItemImageInfo info, bool updateItem);
-
-        /// <summary>
-        /// Adds the parts.
-        /// </summary>
-        /// <param name="enhancers">The enhancers.</param>
-        void AddParts(IEnumerable<IImageEnhancer> enhancers);
-
-        /// <summary>
-        /// Gets the supported enhancers.
-        /// </summary>
-        /// <param name="item">The item.</param>
-        /// <param name="imageType">Type of the image.</param>
-        /// <returns>IEnumerable{IImageEnhancer}.</returns>
-        IImageEnhancer[] GetSupportedEnhancers(BaseItem item, ImageType imageType);
+        /// <param name="path">Path to the image file.</param>
+        /// <returns>BlurHash</returns>
+        string GetImageBlurHash(string path);
 
         /// <summary>
         /// Gets the image cache tag.
@@ -71,16 +54,8 @@ namespace MediaBrowser.Controller.Drawing
         /// <param name="image">The image.</param>
         /// <returns>Guid.</returns>
         string GetImageCacheTag(BaseItem item, ItemImageInfo image);
-        string GetImageCacheTag(BaseItem item, ChapterInfo info);
 
-        /// <summary>
-        /// Gets the image cache tag.
-        /// </summary>
-        /// <param name="item">The item.</param>
-        /// <param name="image">The image.</param>
-        /// <param name="imageEnhancers">The image enhancers.</param>
-        /// <returns>Guid.</returns>
-        string GetImageCacheTag(BaseItem item, ItemImageInfo image, IImageEnhancer[] imageEnhancers);
+        string GetImageCacheTag(BaseItem item, ChapterInfo info);
 
         /// <summary>
         /// Processes the image.
@@ -98,18 +73,9 @@ namespace MediaBrowser.Controller.Drawing
         Task<(string path, string mimeType, DateTime dateModified)> ProcessImage(ImageProcessingOptions options);
 
         /// <summary>
-        /// Gets the enhanced image.
-        /// </summary>
-        /// <param name="item">The item.</param>
-        /// <param name="imageType">Type of the image.</param>
-        /// <param name="imageIndex">Index of the image.</param>
-        /// <returns>Task{System.String}.</returns>
-        Task<string> GetEnhancedImage(BaseItem item, ImageType imageType, int imageIndex);
-
-        /// <summary>
         /// Gets the supported image output formats.
         /// </summary>
-        /// <returns>IReadOnlyCollection{ImageOutput}.</returns>
+        /// <returns><see cref="IReadOnlyCollection{ImageOutput}" />.</returns>
         IReadOnlyCollection<ImageFormat> GetSupportedImageOutputFormats();
 
         /// <summary>
@@ -117,14 +83,6 @@ namespace MediaBrowser.Controller.Drawing
         /// </summary>
         /// <param name="options">The options.</param>
         void CreateImageCollage(ImageCollageOptions options);
-
-        /// <summary>
-        /// Gets a value indicating whether [supports image collage creation].
-        /// </summary>
-        /// <value><c>true</c> if [supports image collage creation]; otherwise, <c>false</c>.</value>
-        bool SupportsImageCollageCreation { get; }
-
-        IImageEncoder ImageEncoder { get; set; }
 
         bool SupportsTransparency(string path);
     }

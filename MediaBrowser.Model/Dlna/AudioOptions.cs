@@ -1,3 +1,6 @@
+#nullable disable
+#pragma warning disable CS1591
+
 using System;
 using MediaBrowser.Model.Dto;
 
@@ -17,12 +20,17 @@ namespace MediaBrowser.Model.Dlna
         }
 
         public bool EnableDirectPlay { get; set; }
+
         public bool EnableDirectStream { get; set; }
+
         public bool ForceDirectPlay { get; set; }
+
         public bool ForceDirectStream { get; set; }
 
         public Guid ItemId { get; set; }
+
         public MediaSourceInfo[] MediaSources { get; set; }
+
         public DeviceProfile Profile { get; set; }
 
         /// <summary>

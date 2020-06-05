@@ -2,50 +2,58 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using BlurHashSharp.SkiaSharp;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Drawing;
 using MediaBrowser.Controller.Extensions;
 using MediaBrowser.Model.Drawing;
-using MediaBrowser.Model.Globalization;
 using Microsoft.Extensions.Logging;
 using SkiaSharp;
+using static Jellyfin.Drawing.Skia.SkiaHelper;
 
 namespace Jellyfin.Drawing.Skia
 {
+    /// <summary>
+    /// Image encoder that uses <see cref="SkiaSharp"/> to manipulate images.
+    /// </summary>
     public class SkiaEncoder : IImageEncoder
     {
-        private readonly ILogger _logger;
-        private readonly IApplicationPaths _appPaths;
-        private readonly ILocalizationManager _localizationManager;
-
         private static readonly HashSet<string> _transparentImageTypes
             = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".png", ".gif", ".webp" };
 
+        private readonly ILogger _logger;
+        private readonly IApplicationPaths _appPaths;
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="SkiaEncoder"/> class.
+        /// </summary>
+        /// <param name="logger">The application logger.</param>
+        /// <param name="appPaths">The application paths.</param>
         public SkiaEncoder(
             ILogger<SkiaEncoder> logger,
-            IApplicationPaths appPaths,
-            ILocalizationManager localizationManager)
+            IApplicationPaths appPaths)
         {
             _logger = logger;
             _appPaths = appPaths;
-            _localizationManager = localizationManager;
         }
 
+        /// <inheritdoc/>
         public string Name => "Skia";
 
+        /// <inheritdoc/>
         public bool SupportsImageCollageCreation => true;
 
+        /// <inheritdoc/>
         public bool SupportsImageEncoding => true;
 
+        /// <inheritdoc/>
         public IReadOnlyCollection<string> SupportedInputFormats =>
             new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
                 "jpeg",
                 "jpg",
                 "png",
-
                 "dng",
-
                 "webp",
                 "gif",
                 "bmp",
@@ -54,31 +62,44 @@ namespace Jellyfin.Drawing.Skia
                 "ktx",
                 "pkm",
                 "wbmp",
-
-                // TODO
-                // Are all of these supported? https://github.com/google/skia/blob/master/infra/bots/recipes/test.py#L454
-
+                // TODO: check if these are supported on multiple platforms
+                // https://github.com/google/skia/blob/master/infra/bots/recipes/test.py#L454
                 // working on windows at least
                 "cr2",
                 "nef",
                 "arw"
             };
 
+        /// <inheritdoc/>
         public IReadOnlyCollection<ImageFormat> SupportedOutputFormats
             => new HashSet<ImageFormat>() { ImageFormat.Webp, ImageFormat.Jpg, ImageFormat.Png };
 
         /// <summary>
-        /// Test to determine if the native lib is available
+        /// Check if the native lib is available.
         /// </summary>
-        public static void TestSkia()
+        /// <returns>True if the native lib is available, otherwise false.</returns>
+        public static bool IsNativeLibAvailable()
         {
-            // test an operation that requires the native library
-            SKPMColor.PreMultiply(SKColors.Black);
+            try
+            {
+                // test an operation that requires the native library
+                SKPMColor.PreMultiply(SKColors.Black);
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
 
         private static bool IsTransparent(SKColor color)
             => (color.Red == 255 && color.Green == 255 && color.Blue == 255) || color.Alpha == 0;
 
+        /// <summary>
+        /// Convert a <see cref="ImageFormat"/> to a <see cref="SKEncodedImageFormat"/>.
+        /// </summary>
+        /// <param name="selectedFormat">The format to convert.</param>
+        /// <returns>The converted format.</returns>
         public static SKEncodedImageFormat GetImageFormat(ImageFormat selectedFormat)
         {
             switch (selectedFormat)
@@ -184,15 +205,39 @@ namespace Jellyfin.Drawing.Skia
             }
         }
 
+        /// <inheritdoc />
+        /// <exception cref="ArgumentNullException">The path is null.</exception>
+        /// <exception cref="FileNotFoundException">The path is not valid.</exception>
+        /// <exception cref="SkiaCodecException">The file at the specified path could not be used to generate a codec.</exception>
         public ImageDimensions GetImageSize(string path)
         {
-            using (var s = new SKFileStream(path))
-            using (var codec = SKCodec.Create(s))
+            if (!File.Exists(path))
             {
+                throw new FileNotFoundException("File not found", path);
+            }
+
+            using (var codec = SKCodec.Create(path, out SKCodecResult result))
+            {
+                EnsureSuccess(result);
+
                 var info = codec.Info;
 
                 return new ImageDimensions(info.Width, info.Height);
             }
+        }
+
+        /// <inheritdoc />
+        /// <exception cref="ArgumentNullException">The path is null.</exception>
+        /// <exception cref="FileNotFoundException">The path is not valid.</exception>
+        /// <exception cref="SkiaCodecException">The file at the specified path could not be used to generate a codec.</exception>
+        public string GetImageBlurHash(int xComp, int yComp, string path)
+        {
+            if (path == null)
+            {
+                throw new ArgumentNullException(nameof(path));
+            }
+
+            return BlurHashEncoder.Encode(xComp, yComp, path);
         }
 
         private static bool HasDiacritics(string text)
@@ -200,9 +245,12 @@ namespace Jellyfin.Drawing.Skia
 
         private bool RequiresSpecialCharacterHack(string path)
         {
-            if (_localizationManager.HasUnicodeCategory(path, UnicodeCategory.OtherLetter))
+            for (int i = 0; i < path.Length; i++)
             {
-                return true;
+                if (char.GetUnicodeCategory(path[i]) == UnicodeCategory.OtherLetter)
+                {
+                    return true;
+                }
             }
 
             if (HasDiacritics(path))
@@ -220,7 +268,7 @@ namespace Jellyfin.Drawing.Skia
                 return path;
             }
 
-            var tempPath = Path.Combine(_appPaths.TempDirectory, Guid.NewGuid() + Path.GetExtension(path) ?? string.Empty);
+            var tempPath = Path.Combine(_appPaths.TempDirectory, Guid.NewGuid() + Path.GetExtension(path));
 
             Directory.CreateDirectory(Path.GetDirectoryName(tempPath));
             File.Copy(path, tempPath, true);
@@ -256,7 +304,15 @@ namespace Jellyfin.Drawing.Skia
             }
         }
 
-        internal SKBitmap Decode(string path, bool forceCleanBitmap, ImageOrientation? orientation, out SKEncodedOrigin origin)
+        /// <summary>
+        /// Decode an image.
+        /// </summary>
+        /// <param name="path">The filepath of the image to decode.</param>
+        /// <param name="forceCleanBitmap">Whether to force clean the bitmap.</param>
+        /// <param name="orientation">The orientation of the image.</param>
+        /// <param name="origin">The detected origin of the image.</param>
+        /// <returns>The resulting bitmap of the image.</returns>
+        internal SKBitmap? Decode(string path, bool forceCleanBitmap, ImageOrientation? orientation, out SKEncodedOrigin origin)
         {
             if (!File.Exists(path))
             {
@@ -267,8 +323,7 @@ namespace Jellyfin.Drawing.Skia
 
             if (requiresTransparencyHack || forceCleanBitmap)
             {
-                using (var stream = new SKFileStream(NormalizePath(path)))
-                using (var codec = SKCodec.Create(stream))
+                using (var codec = SKCodec.Create(NormalizePath(path)))
                 {
                     if (codec == null)
                     {
@@ -308,12 +363,17 @@ namespace Jellyfin.Drawing.Skia
             return resultBitmap;
         }
 
-        private SKBitmap GetBitmap(string path, bool cropWhitespace, bool forceAnalyzeBitmap, ImageOrientation? orientation, out SKEncodedOrigin origin)
+        private SKBitmap? GetBitmap(string path, bool cropWhitespace, bool forceAnalyzeBitmap, ImageOrientation? orientation, out SKEncodedOrigin origin)
         {
             if (cropWhitespace)
             {
                 using (var bitmap = Decode(path, forceAnalyzeBitmap, orientation, out origin))
                 {
+                    if (bitmap == null)
+                    {
+                        return null;
+                    }
+
                     return CropWhiteSpace(bitmap);
                 }
             }
@@ -321,13 +381,11 @@ namespace Jellyfin.Drawing.Skia
             return Decode(path, forceAnalyzeBitmap, orientation, out origin);
         }
 
-        private SKBitmap GetBitmap(string path, bool cropWhitespace, bool autoOrient, ImageOrientation? orientation)
+        private SKBitmap? GetBitmap(string path, bool cropWhitespace, bool autoOrient, ImageOrientation? orientation)
         {
-            SKEncodedOrigin origin;
-
             if (autoOrient)
             {
-                var bitmap = GetBitmap(path, cropWhitespace, true, orientation, out origin);
+                var bitmap = GetBitmap(path, cropWhitespace, true, orientation, out var origin);
 
                 if (bitmap != null && origin != SKEncodedOrigin.TopLeft)
                 {
@@ -340,21 +398,11 @@ namespace Jellyfin.Drawing.Skia
                 return bitmap;
             }
 
-            return GetBitmap(path, cropWhitespace, false, orientation, out origin);
+            return GetBitmap(path, cropWhitespace, false, orientation, out _);
         }
 
         private SKBitmap OrientImage(SKBitmap bitmap, SKEncodedOrigin origin)
         {
-            //var transformations = {
-            //    2: { rotate: 0, flip: true},
-            //    3: { rotate: 180, flip: false},
-            //    4: { rotate: 180, flip: true},
-            //    5: { rotate: 90, flip: true},
-            //    6: { rotate: 90, flip: false},
-            //    7: { rotate: 270, flip: true},
-            //    8: { rotate: 270, flip: false},
-            //}
-
             switch (origin)
             {
                 case SKEncodedOrigin.TopRight:
@@ -484,16 +532,17 @@ namespace Jellyfin.Drawing.Skia
             }
         }
 
+        /// <inheritdoc/>
         public string EncodeImage(string inputPath, DateTime dateModified, string outputPath, bool autoOrient, ImageOrientation? orientation, int quality, ImageProcessingOptions options, ImageFormat selectedOutputFormat)
         {
-            if (string.IsNullOrWhiteSpace(inputPath))
+            if (inputPath.Length == 0)
             {
-                throw new ArgumentNullException(nameof(inputPath));
+                throw new ArgumentException("String can't be empty.", nameof(inputPath));
             }
 
-            if (string.IsNullOrWhiteSpace(inputPath))
+            if (outputPath.Length == 0)
             {
-                throw new ArgumentNullException(nameof(outputPath));
+                throw new ArgumentException("String can't be empty.", nameof(outputPath));
             }
 
             var skiaOutputFormat = GetImageFormat(selectedOutputFormat);
@@ -507,7 +556,7 @@ namespace Jellyfin.Drawing.Skia
             {
                 if (bitmap == null)
                 {
-                    throw new ArgumentOutOfRangeException(string.Format("Skia unable to read image {0}", inputPath));
+                    throw new InvalidDataException($"Skia unable to read image {inputPath}");
                 }
 
                 var originalImageSize = new ImageDimensions(bitmap.Width, bitmap.Height);
@@ -543,7 +592,7 @@ namespace Jellyfin.Drawing.Skia
                     }
 
                     // create bitmap to use for canvas drawing used to draw into bitmap
-                    using (var saveBitmap = new SKBitmap(width, height))//, bitmap.ColorType, bitmap.AlphaType))
+                    using (var saveBitmap = new SKBitmap(width, height)) // , bitmap.ColorType, bitmap.AlphaType))
                     using (var canvas = new SKCanvas(saveBitmap))
                     {
                         // set background color if present
@@ -596,9 +645,11 @@ namespace Jellyfin.Drawing.Skia
                     }
                 }
             }
+
             return outputPath;
         }
 
+        /// <inheritdoc/>
         public void CreateImageCollage(ImageCollageOptions options)
         {
             double ratio = (double)options.Width / options.Height;

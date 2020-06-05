@@ -1,3 +1,6 @@
+#nullable enable
+#pragma warning disable CS1591
+
 using System;
 using System.IO;
 using System.Linq;
@@ -14,11 +17,11 @@ namespace Emby.Naming.Subtitles
             _options = options;
         }
 
-        public SubtitleInfo ParseFile(string path)
+        public SubtitleInfo? ParseFile(string path)
         {
-            if (string.IsNullOrEmpty(path))
+            if (path.Length == 0)
             {
-                throw new ArgumentNullException(nameof(path));
+                throw new ArgumentException("File path can't be empty.", nameof(path));
             }
 
             var extension = Path.GetExtension(path);
@@ -28,7 +31,6 @@ namespace Emby.Naming.Subtitles
             }
 
             var flags = GetFlags(path);
-
             var info = new SubtitleInfo
             {
                 Path = path,
@@ -36,13 +38,14 @@ namespace Emby.Naming.Subtitles
                 IsForced = _options.SubtitleForcedFlags.Any(i => flags.Contains(i, StringComparer.OrdinalIgnoreCase))
             };
 
-            var parts = flags.Where(i => !_options.SubtitleDefaultFlags.Contains(i, StringComparer.OrdinalIgnoreCase) && !_options.SubtitleForcedFlags.Contains(i, StringComparer.OrdinalIgnoreCase))
+            var parts = flags.Where(i => !_options.SubtitleDefaultFlags.Contains(i, StringComparer.OrdinalIgnoreCase)
+                && !_options.SubtitleForcedFlags.Contains(i, StringComparer.OrdinalIgnoreCase))
                 .ToList();
 
             // Should have a name, language and file extension
             if (parts.Count >= 3)
             {
-                info.Language = parts[parts.Count - 2];
+                info.Language = parts[^2];
             }
 
             return info;
@@ -50,11 +53,6 @@ namespace Emby.Naming.Subtitles
 
         private string[] GetFlags(string path)
         {
-            if (string.IsNullOrEmpty(path))
-            {
-                throw new ArgumentNullException(nameof(path));
-            }
-
             // Note: the tags need be be surrounded be either a space ( ), hyphen -, dot . or underscore _.
 
             var file = Path.GetFileName(path);

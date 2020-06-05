@@ -1,3 +1,6 @@
+#nullable disable
+#pragma warning disable CS1591
+
 namespace MediaBrowser.Model.System
 {
     public class PublicSystemInfo
@@ -7,12 +10,6 @@ namespace MediaBrowser.Model.System
         /// </summary>
         /// <value>The local address.</value>
         public string LocalAddress { get; set; }
-
-        /// <summary>
-        /// Gets or sets the wan address.
-        /// </summary>
-        /// <value>The wan address.</value>
-        public string WanAddress { get; set; }
 
         /// <summary>
         /// Gets or sets the name of the server.
@@ -25,7 +22,7 @@ namespace MediaBrowser.Model.System
         /// </summary>
         /// <value>The version.</value>
         public string Version { get; set; }
-        
+
         /// <summary>
         /// The product name. This is the AssemblyProduct name.
         /// </summary>

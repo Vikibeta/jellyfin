@@ -1,3 +1,5 @@
+#pragma warning disable CS1591
+
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -13,7 +15,6 @@ using MediaBrowser.Controller.Providers;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Events;
-using MediaBrowser.Model.Extensions;
 using Microsoft.Extensions.Logging;
 
 namespace Emby.Server.Implementations.EntryPoints
@@ -21,7 +22,7 @@ namespace Emby.Server.Implementations.EntryPoints
     public class LibraryChangedNotifier : IServerEntryPoint
     {
         /// <summary>
-        /// The _library manager
+        /// The library manager.
         /// </summary>
         private readonly ILibraryManager _libraryManager;
 
@@ -30,7 +31,7 @@ namespace Emby.Server.Implementations.EntryPoints
         private readonly ILogger _logger;
 
         /// <summary>
-        /// The _library changed sync lock
+        /// The library changed sync lock.
         /// </summary>
         private readonly object _libraryChangedSyncLock = new object();
 
@@ -48,13 +49,18 @@ namespace Emby.Server.Implementations.EntryPoints
         private Timer LibraryUpdateTimer { get; set; }
 
         /// <summary>
-        /// The library update duration
+        /// The library update duration.
         /// </summary>
         private const int LibraryUpdateDuration = 30000;
 
         private readonly IProviderManager _providerManager;
 
-        public LibraryChangedNotifier(ILibraryManager libraryManager, ISessionManager sessionManager, IUserManager userManager, ILogger logger, IProviderManager providerManager)
+        public LibraryChangedNotifier(
+            ILibraryManager libraryManager,
+            ISessionManager sessionManager,
+            IUserManager userManager,
+            ILogger<LibraryChangedNotifier> logger,
+            IProviderManager providerManager)
         {
             _libraryManager = libraryManager;
             _sessionManager = sessionManager;
@@ -100,7 +106,7 @@ namespace Emby.Server.Implementations.EntryPoints
             _lastProgressMessageTimes[item.Id] = DateTime.UtcNow;
 
             var dict = new Dictionary<string, string>();
-            dict["ItemId"] = item.Id.ToString("N");
+            dict["ItemId"] = item.Id.ToString("N", CultureInfo.InvariantCulture);
             dict["Progress"] = progress.ToString(CultureInfo.InvariantCulture);
 
             try
@@ -116,7 +122,7 @@ namespace Emby.Server.Implementations.EntryPoints
             foreach (var collectionFolder in collectionFolders)
             {
                 var collectionFolderDict = new Dictionary<string, string>();
-                collectionFolderDict["ItemId"] = collectionFolder.Id.ToString("N");
+                collectionFolderDict["ItemId"] = collectionFolder.Id.ToString("N", CultureInfo.InvariantCulture);
                 collectionFolderDict["Progress"] = (collectionFolder.GetRefreshProgress() ?? 0).ToString(CultureInfo.InvariantCulture);
 
                 try
@@ -188,8 +194,11 @@ namespace Emby.Server.Implementations.EntryPoints
             {
                 if (LibraryUpdateTimer == null)
                 {
-                    LibraryUpdateTimer = new Timer(LibraryUpdateTimerCallback, null, LibraryUpdateDuration,
-                                                   Timeout.Infinite);
+                    LibraryUpdateTimer = new Timer(
+                        LibraryUpdateTimerCallback,
+                        null,
+                        LibraryUpdateDuration,
+                        Timeout.Infinite);
                 }
                 else
                 {
@@ -293,7 +302,7 @@ namespace Emby.Server.Implementations.EntryPoints
                                     .Select(x => x.First())
                                     .ToList();
 
-                SendChangeNotifications(_itemsAdded.ToList(), itemsUpdated, _itemsRemoved.ToList(), foldersAddedTo, foldersRemovedFrom, CancellationToken.None);
+                SendChangeNotifications(_itemsAdded.ToList(), itemsUpdated, _itemsRemoved.ToList(), foldersAddedTo, foldersRemovedFrom, CancellationToken.None).GetAwaiter().GetResult();
 
                 if (LibraryUpdateTimer != null)
                 {
@@ -318,7 +327,7 @@ namespace Emby.Server.Implementations.EntryPoints
         /// <param name="foldersAddedTo">The folders added to.</param>
         /// <param name="foldersRemovedFrom">The folders removed from.</param>
         /// <param name="cancellationToken">The cancellation token.</param>
-        private async void SendChangeNotifications(List<BaseItem> itemsAdded, List<BaseItem> itemsUpdated, List<BaseItem> itemsRemoved, List<Folder> foldersAddedTo, List<Folder> foldersRemovedFrom, CancellationToken cancellationToken)
+        private async Task SendChangeNotifications(List<BaseItem> itemsAdded, List<BaseItem> itemsUpdated, List<BaseItem> itemsRemoved, List<Folder> foldersAddedTo, List<Folder> foldersRemovedFrom, CancellationToken cancellationToken)
         {
             var userIds = _sessionManager.Sessions
                 .Select(i => i.UserId)
@@ -378,15 +387,15 @@ namespace Emby.Server.Implementations.EntryPoints
 
             return new LibraryUpdateInfo
             {
-                ItemsAdded = itemsAdded.SelectMany(i => TranslatePhysicalItemToUserLibrary(i, user)).Select(i => i.Id.ToString("N")).Distinct().ToArray(),
+                ItemsAdded = itemsAdded.SelectMany(i => TranslatePhysicalItemToUserLibrary(i, user)).Select(i => i.Id.ToString("N", CultureInfo.InvariantCulture)).Distinct().ToArray(),
 
-                ItemsUpdated = itemsUpdated.SelectMany(i => TranslatePhysicalItemToUserLibrary(i, user)).Select(i => i.Id.ToString("N")).Distinct().ToArray(),
+                ItemsUpdated = itemsUpdated.SelectMany(i => TranslatePhysicalItemToUserLibrary(i, user)).Select(i => i.Id.ToString("N", CultureInfo.InvariantCulture)).Distinct().ToArray(),
 
-                ItemsRemoved = itemsRemoved.SelectMany(i => TranslatePhysicalItemToUserLibrary(i, user, true)).Select(i => i.Id.ToString("N")).Distinct().ToArray(),
+                ItemsRemoved = itemsRemoved.SelectMany(i => TranslatePhysicalItemToUserLibrary(i, user, true)).Select(i => i.Id.ToString("N", CultureInfo.InvariantCulture)).Distinct().ToArray(),
 
-                FoldersAddedTo = foldersAddedTo.SelectMany(i => TranslatePhysicalItemToUserLibrary(i, user)).Select(i => i.Id.ToString("N")).Distinct().ToArray(),
+                FoldersAddedTo = foldersAddedTo.SelectMany(i => TranslatePhysicalItemToUserLibrary(i, user)).Select(i => i.Id.ToString("N", CultureInfo.InvariantCulture)).Distinct().ToArray(),
 
-                FoldersRemovedFrom = foldersRemovedFrom.SelectMany(i => TranslatePhysicalItemToUserLibrary(i, user)).Select(i => i.Id.ToString("N")).Distinct().ToArray(),
+                FoldersRemovedFrom = foldersRemovedFrom.SelectMany(i => TranslatePhysicalItemToUserLibrary(i, user)).Select(i => i.Id.ToString("N", CultureInfo.InvariantCulture)).Distinct().ToArray(),
 
                 CollectionFolders = GetTopParentIds(newAndRemoved, allUserRootChildren).ToArray()
             };
@@ -422,7 +431,7 @@ namespace Emby.Server.Implementations.EntryPoints
                 var collectionFolders = _libraryManager.GetCollectionFolders(item, allUserRootChildren);
                 foreach (var folder in allUserRootChildren)
                 {
-                    list.Add(folder.Id.ToString("N"));
+                    list.Add(folder.Id.ToString("N", CultureInfo.InvariantCulture));
                 }
             }
 
@@ -452,7 +461,7 @@ namespace Emby.Server.Implementations.EntryPoints
                 return new[] { item };
             }
 
-            return new T[] { };
+            return Array.Empty<T>();
         }
 
         /// <summary>

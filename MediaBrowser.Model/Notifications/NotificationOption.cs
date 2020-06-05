@@ -1,9 +1,20 @@
+#pragma warning disable CS1591
+
 using System;
 
 namespace MediaBrowser.Model.Notifications
 {
     public class NotificationOption
     {
+        public NotificationOption(string type)
+        {
+            Type = type;
+
+            DisabledServices = Array.Empty<string>();
+            DisabledMonitorUsers = Array.Empty<string>();
+            SendToUsers = Array.Empty<string>();
+        }
+
         public string Type { get; set; }
 
         /// <summary>
@@ -33,12 +44,5 @@ namespace MediaBrowser.Model.Notifications
         /// </summary>
         /// <value>The send to user mode.</value>
         public SendToUserType SendToUserMode { get; set; }
-
-        public NotificationOption()
-        {
-            DisabledServices = Array.Empty<string>();
-            DisabledMonitorUsers = Array.Empty<string>();
-            SendToUsers = Array.Empty<string>();
-        }
     }
 }

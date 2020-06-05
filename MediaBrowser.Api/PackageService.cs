@@ -1,15 +1,15 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
-using MediaBrowser.Common;
 using MediaBrowser.Common.Extensions;
-using MediaBrowser.Common.Progress;
 using MediaBrowser.Common.Updates;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Services;
 using MediaBrowser.Model.Updates;
+using Microsoft.Extensions.Logging;
 
 namespace MediaBrowser.Api
 {
@@ -42,23 +42,6 @@ namespace MediaBrowser.Api
     [Authenticated]
     public class GetPackages : IReturn<PackageInfo[]>
     {
-        /// <summary>
-        /// Gets or sets the name.
-        /// </summary>
-        /// <value>The name.</value>
-        [ApiMember(Name = "PackageType", Description = "Optional package type filter (System/UserInstalled)", IsRequired = false, DataType = "string", ParameterType = "query", Verb = "GET")]
-        public string PackageType { get; set; }
-
-        [ApiMember(Name = "TargetSystems", Description = "Optional. Filter by target system type. Allows multiple, comma delimited.", IsRequired = false, DataType = "string", ParameterType = "query", Verb = "GET", AllowMultiple = true)]
-        public string TargetSystems { get; set; }
-
-        [ApiMember(Name = "IsPremium", Description = "Optional. Filter by premium status", IsRequired = false, DataType = "boolean", ParameterType = "query", Verb = "GET")]
-        public bool? IsPremium { get; set; }
-
-        [ApiMember(Name = "IsAdult", Description = "Optional. Filter by package that contain adult content.", IsRequired = false, DataType = "boolean", ParameterType = "query", Verb = "GET")]
-        public bool? IsAdult { get; set; }
-
-        public bool? IsAppStoreEnabled { get; set; }
     }
 
     /// <summary>
@@ -88,13 +71,6 @@ namespace MediaBrowser.Api
         /// <value>The version.</value>
         [ApiMember(Name = "Version", Description = "Optional version. Defaults to latest version.", IsRequired = false, DataType = "string", ParameterType = "query", Verb = "POST")]
         public string Version { get; set; }
-
-        /// <summary>
-        /// Gets or sets the update class.
-        /// </summary>
-        /// <value>The update class.</value>
-        [ApiMember(Name = "UpdateClass", Description = "Optional update class (Dev, Beta, Release). Defaults to Release.", IsRequired = false, DataType = "string", ParameterType = "query", Verb = "POST")]
-        public PackageVersionClass UpdateClass { get; set; }
     }
 
     /// <summary>
@@ -118,12 +94,15 @@ namespace MediaBrowser.Api
     public class PackageService : BaseApiService
     {
         private readonly IInstallationManager _installationManager;
-        private readonly IApplicationHost _appHost;
 
-        public PackageService(IInstallationManager installationManager, IApplicationHost appHost)
+        public PackageService(
+            ILogger<PackageService> logger,
+            IServerConfigurationManager serverConfigurationManager,
+            IHttpResultFactory httpResultFactory,
+            IInstallationManager installationManager)
+            : base(logger, serverConfigurationManager, httpResultFactory)
         {
             _installationManager = installationManager;
-            _appHost = appHost;
         }
 
         /// <summary>
@@ -131,18 +110,13 @@ namespace MediaBrowser.Api
         /// </summary>
         /// <param name="request">The request.</param>
         /// <returns>System.Object.</returns>
-        ///
-        /// <summary>
-        /// Gets the specified request.
-        /// </summary>
-        /// <param name="request">The request.</param>
-        /// <returns>System.Object.</returns>
         public object Get(GetPackage request)
         {
-            var packages = _installationManager.GetAvailablePackages(CancellationToken.None, applicationVersion: typeof(PackageService).Assembly.GetName().Version).Result;
-
-            var result = packages.FirstOrDefault(p => string.Equals(p.guid, request.AssemblyGuid ?? "none", StringComparison.OrdinalIgnoreCase))
-                         ?? packages.FirstOrDefault(p => p.name.Equals(request.Name, StringComparison.OrdinalIgnoreCase));
+            var packages = _installationManager.GetAvailablePackages().GetAwaiter().GetResult();
+            var result = _installationManager.FilterPackages(
+                packages,
+                request.Name,
+                string.IsNullOrEmpty(request.AssemblyGuid) ? default : Guid.Parse(request.AssemblyGuid)).FirstOrDefault();
 
             return ToOptimizedResult(result);
         }
@@ -154,29 +128,7 @@ namespace MediaBrowser.Api
         /// <returns>System.Object.</returns>
         public async Task<object> Get(GetPackages request)
         {
-            IEnumerable<PackageInfo> packages = await _installationManager.GetAvailablePackages(CancellationToken.None, false, request.PackageType, typeof(PackageService).Assembly.GetName().Version).ConfigureAwait(false);
-
-            if (!string.IsNullOrEmpty(request.TargetSystems))
-            {
-                var apps = request.TargetSystems.Split(',').Select(i => (PackageTargetSystem)Enum.Parse(typeof(PackageTargetSystem), i, true));
-
-                packages = packages.Where(p => apps.Contains(p.targetSystem));
-            }
-
-            if (request.IsPremium.HasValue)
-            {
-                packages = packages.Where(p => p.isPremium == request.IsPremium.Value);
-            }
-
-            if (request.IsAdult.HasValue)
-            {
-                packages = packages.Where(p => p.adult == request.IsAdult.Value);
-            }
-
-            if (request.IsAppStoreEnabled.HasValue)
-            {
-                packages = packages.Where(p => p.enableInAppStore == request.IsAppStoreEnabled.Value);
-            }
+            IEnumerable<PackageInfo> packages = await _installationManager.GetAvailablePackages().ConfigureAwait(false);
 
             return ToOptimizedResult(packages.ToArray());
         }
@@ -188,16 +140,23 @@ namespace MediaBrowser.Api
         /// <exception cref="ResourceNotFoundException"></exception>
         public async Task Post(InstallPackage request)
         {
-            var package = string.IsNullOrEmpty(request.Version) ?
-                await _installationManager.GetLatestCompatibleVersion(request.Name, request.AssemblyGuid, typeof(PackageService).Assembly.GetName().Version, request.UpdateClass).ConfigureAwait(false) :
-                await _installationManager.GetPackage(request.Name, request.AssemblyGuid, request.UpdateClass, Version.Parse(request.Version)).ConfigureAwait(false);
+            var packages = await _installationManager.GetAvailablePackages().ConfigureAwait(false);
+            var package = _installationManager.GetCompatibleVersions(
+                    packages,
+                    request.Name,
+                    string.IsNullOrEmpty(request.AssemblyGuid) ? Guid.Empty : Guid.Parse(request.AssemblyGuid),
+                    string.IsNullOrEmpty(request.Version) ? null : Version.Parse(request.Version)).FirstOrDefault();
 
             if (package == null)
             {
-                throw new ResourceNotFoundException(string.Format("Package not found: {0}", request.Name));
+                throw new ResourceNotFoundException(
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Package not found: {0}",
+                        request.Name));
             }
 
-            await _installationManager.InstallPackage(package, true, new SimpleProgress<double>(), CancellationToken.None);
+            await _installationManager.InstallPackage(package);
         }
 
         /// <summary>
@@ -206,13 +165,7 @@ namespace MediaBrowser.Api
         /// <param name="request">The request.</param>
         public void Delete(CancelPackageInstallation request)
         {
-            var info = _installationManager.CurrentInstallations.FirstOrDefault(i => i.Item1.Id.Equals(request.Id));
-
-            if (info != null)
-            {
-                info.Item2.Cancel();
-            }
+            _installationManager.CancelInstallation(new Guid(request.Id));
         }
     }
-
 }

@@ -1,3 +1,5 @@
+#pragma warning disable CS1591
+
 using System;
 using System.IO;
 using System.Threading;
@@ -5,8 +7,14 @@ using System.Threading.Tasks;
 
 namespace MediaBrowser.Model.IO
 {
-    public interface IIsoMounter : IDisposable
+    public interface IIsoMounter
     {
+        /// <summary>
+        /// Gets the name.
+        /// </summary>
+        /// <value>The name.</value>
+        string Name { get; }
+
         /// <summary>
         /// Mounts the specified iso path.
         /// </summary>
@@ -23,11 +31,5 @@ namespace MediaBrowser.Model.IO
         /// <param name="path">The path.</param>
         /// <returns><c>true</c> if this instance can mount the specified path; otherwise, <c>false</c>.</returns>
         bool CanMount(string path);
-
-        /// <summary>
-        /// Gets the name.
-        /// </summary>
-        /// <value>The name.</value>
-        string Name { get; }
     }
 }

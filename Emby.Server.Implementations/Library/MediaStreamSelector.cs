@@ -1,3 +1,5 @@
+#pragma warning disable CS1591
+
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -33,7 +35,8 @@ namespace Emby.Server.Implementations.Library
             return null;
         }
 
-        public static int? GetDefaultSubtitleStreamIndex(List<MediaStream> streams,
+        public static int? GetDefaultSubtitleStreamIndex(
+            List<MediaStream> streams,
             string[] preferredLanguages,
             SubtitlePlaybackMode mode,
             string audioTrackLanguage)
@@ -113,7 +116,8 @@ namespace Emby.Server.Implementations.Library
                  .ThenBy(i => i.Index);
         }
 
-        public static void SetSubtitleStreamScores(List<MediaStream> streams,
+        public static void SetSubtitleStreamScores(
+            List<MediaStream> streams,
             string[] preferredLanguages,
             SubtitlePlaybackMode mode,
             string audioTrackLanguage)

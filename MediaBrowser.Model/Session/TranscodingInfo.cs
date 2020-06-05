@@ -1,3 +1,8 @@
+#nullable disable
+#pragma warning disable CS1591
+
+using System;
+
 namespace MediaBrowser.Model.Session
 {
     public class TranscodingInfo
@@ -20,7 +25,7 @@ namespace MediaBrowser.Model.Session
 
         public TranscodingInfo()
         {
-            TranscodeReasons = new TranscodeReason[] { };
+            TranscodeReasons = Array.Empty<TranscodeReason>();
         }
     }
 

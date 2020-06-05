@@ -1,3 +1,5 @@
+#pragma warning disable CS1591
+
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -38,8 +40,8 @@ namespace Emby.Server.Implementations.LiveTv
         /// <returns>IEnumerable{BaseTaskTrigger}.</returns>
         public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
         {
-            return new[] {
-
+            return new[]
+            {
                 // Every so often
                 new TaskTriggerInfo { Type = TaskTriggerInfo.TriggerInterval, IntervalTicks = TimeSpan.FromHours(24).Ticks}
             };

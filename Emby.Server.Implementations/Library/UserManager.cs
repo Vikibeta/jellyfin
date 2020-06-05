@@ -1,4 +1,7 @@
+#pragma warning disable CS1591
+
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -7,11 +10,11 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using MediaBrowser.Common.Cryptography;
 using MediaBrowser.Common.Events;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Authentication;
-using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Devices;
 using MediaBrowser.Controller.Drawing;
 using MediaBrowser.Controller.Dto;
@@ -36,45 +39,25 @@ using Microsoft.Extensions.Logging;
 namespace Emby.Server.Implementations.Library
 {
     /// <summary>
-    /// Class UserManager
+    /// Class UserManager.
     /// </summary>
     public class UserManager : IUserManager
     {
-        /// <summary>
-        /// Gets the users.
-        /// </summary>
-        /// <value>The users.</value>
-        public IEnumerable<User> Users => _users;
+        private readonly object _policySyncLock = new object();
+        private readonly object _configSyncLock = new object();
 
-        private User[] _users;
-
-        /// <summary>
-        /// The _logger
-        /// </summary>
         private readonly ILogger _logger;
-
-        /// <summary>
-        /// Gets or sets the configuration manager.
-        /// </summary>
-        /// <value>The configuration manager.</value>
-        private IServerConfigurationManager ConfigurationManager { get; set; }
-
-        /// <summary>
-        /// Gets the active user repository
-        /// </summary>
-        /// <value>The user repository.</value>
-        private IUserRepository UserRepository { get; set; }
-        public event EventHandler<GenericEventArgs<User>> UserPasswordChanged;
-
+        private readonly IUserRepository _userRepository;
         private readonly IXmlSerializer _xmlSerializer;
         private readonly IJsonSerializer _jsonSerializer;
-
         private readonly INetworkManager _networkManager;
-
-        private readonly Func<IImageProcessor> _imageProcessorFactory;
-        private readonly Func<IDtoService> _dtoServiceFactory;
+        private readonly IImageProcessor _imageProcessor;
+        private readonly Lazy<IDtoService> _dtoServiceFactory;
         private readonly IServerApplicationHost _appHost;
         private readonly IFileSystem _fileSystem;
+        private readonly ICryptoProvider _cryptoProvider;
+
+        private ConcurrentDictionary<Guid, User> _users;
 
         private IAuthenticationProvider[] _authenticationProviders;
         private DefaultAuthenticationProvider _defaultAuthenticationProvider;
@@ -84,29 +67,75 @@ namespace Emby.Server.Implementations.Library
         private IPasswordResetProvider[] _passwordResetProviders;
         private DefaultPasswordResetProvider _defaultPasswordResetProvider;
 
+        private IDtoService DtoService => _dtoServiceFactory.Value;
+
         public UserManager(
-            ILoggerFactory loggerFactory,
-            IServerConfigurationManager configurationManager,
+            ILogger<UserManager> logger,
             IUserRepository userRepository,
             IXmlSerializer xmlSerializer,
             INetworkManager networkManager,
-            Func<IImageProcessor> imageProcessorFactory,
-            Func<IDtoService> dtoServiceFactory,
+            IImageProcessor imageProcessor,
+            Lazy<IDtoService> dtoServiceFactory,
             IServerApplicationHost appHost,
             IJsonSerializer jsonSerializer,
-            IFileSystem fileSystem)
+            IFileSystem fileSystem,
+            ICryptoProvider cryptoProvider)
         {
-            _logger = loggerFactory.CreateLogger(nameof(UserManager));
-            UserRepository = userRepository;
+            _logger = logger;
+            _userRepository = userRepository;
             _xmlSerializer = xmlSerializer;
             _networkManager = networkManager;
-            _imageProcessorFactory = imageProcessorFactory;
+            _imageProcessor = imageProcessor;
             _dtoServiceFactory = dtoServiceFactory;
             _appHost = appHost;
             _jsonSerializer = jsonSerializer;
             _fileSystem = fileSystem;
-            ConfigurationManager = configurationManager;
-            _users = Array.Empty<User>();
+            _cryptoProvider = cryptoProvider;
+            _users = null;
+        }
+
+        public event EventHandler<GenericEventArgs<User>> UserPasswordChanged;
+
+        /// <summary>
+        /// Occurs when [user updated].
+        /// </summary>
+        public event EventHandler<GenericEventArgs<User>> UserUpdated;
+
+        public event EventHandler<GenericEventArgs<User>> UserPolicyUpdated;
+
+        public event EventHandler<GenericEventArgs<User>> UserConfigurationUpdated;
+
+        public event EventHandler<GenericEventArgs<User>> UserLockedOut;
+
+        public event EventHandler<GenericEventArgs<User>> UserCreated;
+
+        /// <summary>
+        /// Occurs when [user deleted].
+        /// </summary>
+        public event EventHandler<GenericEventArgs<User>> UserDeleted;
+
+        /// <inheritdoc />
+        public IEnumerable<User> Users => _users.Values;
+
+        /// <inheritdoc />
+        public IEnumerable<Guid> UsersIds => _users.Keys;
+
+        /// <summary>
+        /// Called when [user updated].
+        /// </summary>
+        /// <param name="user">The user.</param>
+        private void OnUserUpdated(User user)
+        {
+            UserUpdated?.Invoke(this, new GenericEventArgs<User>(user));
+        }
+
+        /// <summary>
+        /// Called when [user deleted].
+        /// </summary>
+        /// <param name="user">The user.</param>
+        private void OnUserDeleted(User user)
+        {
+            UserDeleted?.Invoke(this, new GenericEventArgs<User>(user));
         }
 
         public NameIdPair[] GetAuthenticationProviders()
@@ -137,7 +166,7 @@ namespace Emby.Server.Implementations.Library
                 .ToArray();
         }
 
-        public void AddParts(IEnumerable<IAuthenticationProvider> authenticationProviders,IEnumerable<IPasswordResetProvider> passwordResetProviders)
+        public void AddParts(IEnumerable<IAuthenticationProvider> authenticationProviders, IEnumerable<IPasswordResetProvider> passwordResetProviders)
         {
             _authenticationProviders = authenticationProviders.ToArray();
 
@@ -150,71 +179,23 @@ namespace Emby.Server.Implementations.Library
             _defaultPasswordResetProvider = passwordResetProviders.OfType<DefaultPasswordResetProvider>().First();
         }
 
-        #region UserUpdated Event
-        /// <summary>
-        /// Occurs when [user updated].
-        /// </summary>
-        public event EventHandler<GenericEventArgs<User>> UserUpdated;
-        public event EventHandler<GenericEventArgs<User>> UserPolicyUpdated;
-        public event EventHandler<GenericEventArgs<User>> UserConfigurationUpdated;
-        public event EventHandler<GenericEventArgs<User>> UserLockedOut;
-
-        /// <summary>
-        /// Called when [user updated].
-        /// </summary>
-        /// <param name="user">The user.</param>
-        private void OnUserUpdated(User user)
-        {
-            UserUpdated?.Invoke(this, new GenericEventArgs<User> { Argument = user });
-        }
-        #endregion
-
-        #region UserDeleted Event
-        /// <summary>
-        /// Occurs when [user deleted].
-        /// </summary>
-        public event EventHandler<GenericEventArgs<User>> UserDeleted;
-        /// <summary>
-        /// Called when [user deleted].
-        /// </summary>
-        /// <param name="user">The user.</param>
-        private void OnUserDeleted(User user)
-        {
-            UserDeleted?.Invoke(this, new GenericEventArgs<User> { Argument = user });
-        }
-        #endregion
-
-        /// <summary>
-        /// Gets a User by Id
-        /// </summary>
-        /// <param name="id">The id.</param>
-        /// <returns>User.</returns>
-        /// <exception cref="ArgumentNullException"></exception>
+        /// <inheritdoc />
         public User GetUserById(Guid id)
         {
             if (id == Guid.Empty)
             {
-                throw new ArgumentException(nameof(id), "Guid can't be empty");
+                throw new ArgumentException("Guid can't be empty", nameof(id));
             }
 
-            return Users.FirstOrDefault(u => u.Id == id);
-        }
-
-        /// <summary>
-        /// Gets the user by identifier.
-        /// </summary>
-        /// <param name="id">The identifier.</param>
-        /// <returns>User.</returns>
-        public User GetUserById(string id)
-        {
-            return GetUserById(new Guid(id));
+            _users.TryGetValue(id, out User user);
+            return user;
         }
 
         public User GetUserByName(string name)
         {
             if (string.IsNullOrWhiteSpace(name))
             {
-                throw new ArgumentNullException(nameof(name));
+                throw new ArgumentException("Invalid username", nameof(name));
             }
 
             return Users.FirstOrDefault(u => string.Equals(u.Name, name, StringComparison.OrdinalIgnoreCase));
@@ -222,9 +203,9 @@ namespace Emby.Server.Implementations.Library
 
         public void Initialize()
         {
-            _users = LoadUsers();
+            LoadUsers();
 
-            var users = Users.ToList();
+            var users = Users;
 
             // If there are no local users with admin rights, make them all admins
             if (!users.Any(i => i.Policy.IsAdministrator))
@@ -241,14 +222,12 @@ namespace Emby.Server.Implementations.Library
         {
             // This is some regex that matches only on unicode "word" characters, as well as -, _ and @
             // In theory this will cut out most if not all 'control' characters which should help minimize any weirdness
-             // Usernames can contain letters (a-z + whatever else unicode is cool with), numbers (0-9), at-signs (@), dashes (-), underscores (_), apostrophes ('), and periods (.)
+            // Usernames can contain letters (a-z + whatever else unicode is cool with), numbers (0-9), at-signs (@), dashes (-), underscores (_), apostrophes ('), and periods (.)
             return Regex.IsMatch(username, @"^[\w\-'._@]*$");
         }
 
         private static bool IsValidUsernameCharacter(char i)
-        {
-            return IsValidUsername(i.ToString());
-        }
+            => IsValidUsername(i.ToString(CultureInfo.InvariantCulture));
 
         public string MakeValidUsername(string username)
         {
@@ -267,47 +246,51 @@ namespace Emby.Server.Implementations.Library
                     builder.Append(c);
                 }
             }
+
             return builder.ToString();
         }
 
-        public async Task<User> AuthenticateUser(string username, string password, string hashedPassword, string remoteEndPoint, bool isUserSession)
+        public async Task<User> AuthenticateUser(
+            string username,
+            string password,
+            string hashedPassword,
+            string remoteEndPoint,
+            bool isUserSession)
         {
             if (string.IsNullOrWhiteSpace(username))
             {
+                _logger.LogInformation("Authentication request without username has been denied (IP: {IP}).", remoteEndPoint);
                 throw new ArgumentNullException(nameof(username));
             }
 
-            var user = Users
-                .FirstOrDefault(i => string.Equals(username, i.Name, StringComparison.OrdinalIgnoreCase));
+            var user = Users.FirstOrDefault(i => string.Equals(username, i.Name, StringComparison.OrdinalIgnoreCase));
 
             var success = false;
-            string updatedUsername = null;
             IAuthenticationProvider authenticationProvider = null;
 
             if (user != null)
             {
                 var authResult = await AuthenticateLocalUser(username, password, hashedPassword, user, remoteEndPoint).ConfigureAwait(false);
-                authenticationProvider = authResult.Item1;
-                updatedUsername = authResult.Item2;
-                success = authResult.Item3;
+                authenticationProvider = authResult.authenticationProvider;
+                success = authResult.success;
             }
             else
             {
                 // user is null
                 var authResult = await AuthenticateLocalUser(username, password, hashedPassword, null, remoteEndPoint).ConfigureAwait(false);
-                authenticationProvider = authResult.Item1;
-                updatedUsername = authResult.Item2;
-                success = authResult.Item3;
+                authenticationProvider = authResult.authenticationProvider;
+                string updatedUsername = authResult.username;
+                success = authResult.success;
 
-                if (success && authenticationProvider != null && !(authenticationProvider is DefaultAuthenticationProvider))
+                if (success
+                    && authenticationProvider != null
+                    && !(authenticationProvider is DefaultAuthenticationProvider))
                 {
-                    // We should trust the user that the authprovider says, not what was typed
-                    if (updatedUsername != username)
-                    {
-                        username = updatedUsername;
-                    }
+                    // Trust the username returned by the authentication provider
+                    username = updatedUsername;
 
-                    // Search the database for the user again; the authprovider might have created it
+                    // Search the database for the user again
+                    // the authentication provider might have created it
                     user = Users
                         .FirstOrDefault(i => string.Equals(username, i.Name, StringComparison.OrdinalIgnoreCase));
 
@@ -332,21 +315,25 @@ namespace Emby.Server.Implementations.Library
 
             if (user == null)
             {
-                throw new SecurityException("Invalid username or password entered.");
+                _logger.LogInformation("Authentication request for {UserName} has been denied (IP: {IP}).", username, remoteEndPoint);
+                throw new AuthenticationException("Invalid username or password entered.");
             }
 
             if (user.Policy.IsDisabled)
             {
-                throw new SecurityException(string.Format("The {0} account is currently disabled. Please consult with your administrator.", user.Name));
+                _logger.LogInformation("Authentication request for {UserName} has been denied because this account is currently disabled (IP: {IP}).", username, remoteEndPoint);
+                throw new SecurityException($"The {user.Name} account is currently disabled. Please consult with your administrator.");
             }
 
             if (!user.Policy.EnableRemoteAccess && !_networkManager.IsInLocalNetwork(remoteEndPoint))
             {
+                _logger.LogInformation("Authentication request for {UserName} forbidden: remote access disabled and user not in local network (IP: {IP}).", username, remoteEndPoint);
                 throw new SecurityException("Forbidden.");
             }
 
             if (!user.IsParentalScheduleAllowed())
             {
+                _logger.LogInformation("Authentication request for {UserName} is not allowed at this time due parental restrictions (IP: {IP}).", username, remoteEndPoint);
                 throw new SecurityException("User is not allowed access at this time.");
             }
 
@@ -358,17 +345,20 @@ namespace Emby.Server.Implementations.Library
                     user.LastActivityDate = user.LastLoginDate = DateTime.UtcNow;
                     UpdateUser(user);
                 }
-                UpdateInvalidLoginAttemptCount(user, 0);
+
+                ResetInvalidLoginAttemptCount(user);
+                _logger.LogInformation("Authentication request for {UserName} has succeeded.", user.Name);
             }
             else
             {
-                UpdateInvalidLoginAttemptCount(user, user.Policy.InvalidLoginAttemptCount + 1);
+                IncrementInvalidLoginAttemptCount(user);
+                _logger.LogInformation("Authentication request for {UserName} has been denied (IP: {IP}).", user.Name, remoteEndPoint);
             }
-
-            _logger.LogInformation("Authentication request for {0} {1}.", user.Name, success ? "has succeeded" : "has been denied");
 
             return success ? user : null;
         }
+
+#nullable enable
 
         private static string GetAuthenticationProviderId(IAuthenticationProvider provider)
         {
@@ -382,7 +372,7 @@ namespace Emby.Server.Implementations.Library
 
         private IAuthenticationProvider GetAuthenticationProvider(User user)
         {
-            return GetAuthenticationProviders(user).First();
+            return GetAuthenticationProviders(user)[0];
         }
 
         private IPasswordResetProvider GetPasswordResetProvider(User user)
@@ -390,9 +380,9 @@ namespace Emby.Server.Implementations.Library
             return GetPasswordResetProviders(user)[0];
         }
 
-        private IAuthenticationProvider[] GetAuthenticationProviders(User user)
+        private IAuthenticationProvider[] GetAuthenticationProviders(User? user)
         {
-            var authenticationProviderId = user == null ? null : user.Policy.AuthenticationProviderId;
+            var authenticationProviderId = user?.Policy.AuthenticationProviderId;
 
             var providers = _authenticationProviders.Where(i => i.IsEnabled).ToArray();
 
@@ -404,14 +394,14 @@ namespace Emby.Server.Implementations.Library
             if (providers.Length == 0)
             {
                 // Assign the user to the InvalidAuthProvider since no configured auth provider was valid/found
-                _logger.LogWarning("User {UserName} was found with invalid/missing Authentication Provider {AuthenticationProviderId}. Assigning user to InvalidAuthProvider until this is corrected", user.Name, user.Policy.AuthenticationProviderId);
+                _logger.LogWarning("User {UserName} was found with invalid/missing Authentication Provider {AuthenticationProviderId}. Assigning user to InvalidAuthProvider until this is corrected", user?.Name, user?.Policy.AuthenticationProviderId);
                 providers = new IAuthenticationProvider[] { _invalidAuthProvider };
             }
 
             return providers;
         }
 
-        private IPasswordResetProvider[] GetPasswordResetProviders(User user)
+        private IPasswordResetProvider[] GetPasswordResetProviders(User? user)
         {
             var passwordResetProviderId = user?.Policy.PasswordResetProviderId;
 
@@ -430,161 +420,140 @@ namespace Emby.Server.Implementations.Library
             return providers;
         }
 
-        private async Task<Tuple<string, bool>> AuthenticateWithProvider(IAuthenticationProvider provider, string username, string password, User resolvedUser)
+        private async Task<(string username, bool success)> AuthenticateWithProvider(
+            IAuthenticationProvider provider,
+            string username,
+            string password,
+            User? resolvedUser)
         {
             try
             {
-                var requiresResolvedUser = provider as IRequiresResolvedUser;
-                ProviderAuthenticationResult authenticationResult = null;
-                if (requiresResolvedUser != null)
-                {
-                    authenticationResult = await requiresResolvedUser.Authenticate(username, password, resolvedUser).ConfigureAwait(false);
-                }
-                else
-                {
-                    authenticationResult = await provider.Authenticate(username, password).ConfigureAwait(false);
-                }
+                var authenticationResult = provider is IRequiresResolvedUser requiresResolvedUser
+                    ? await requiresResolvedUser.Authenticate(username, password, resolvedUser).ConfigureAwait(false)
+                    : await provider.Authenticate(username, password).ConfigureAwait(false);
 
-                if(authenticationResult.Username != username)
+                if (authenticationResult.Username != username)
                 {
                     _logger.LogDebug("Authentication provider provided updated username {1}", authenticationResult.Username);
                     username = authenticationResult.Username;
                 }
 
-                return new Tuple<string, bool>(username, true);
+                return (username, true);
             }
-            catch (Exception ex)
+            catch (AuthenticationException ex)
             {
-                _logger.LogError(ex, "Error authenticating with provider {provider}", provider.Name);
+                _logger.LogError(ex, "Error authenticating with provider {Provider}", provider.Name);
 
-                return new Tuple<string, bool>(username, false);
+                return (username, false);
             }
         }
 
-        private async Task<Tuple<IAuthenticationProvider, string, bool>> AuthenticateLocalUser(string username, string password, string hashedPassword, User user, string remoteEndPoint)
+        private async Task<(IAuthenticationProvider? authenticationProvider, string username, bool success)> AuthenticateLocalUser(
+            string username,
+            string password,
+            string hashedPassword,
+            User? user,
+            string remoteEndPoint)
         {
-            string updatedUsername = null;
             bool success = false;
-            IAuthenticationProvider authenticationProvider = null;
+            IAuthenticationProvider? authenticationProvider = null;
 
-            if (password != null && user != null)
+            foreach (var provider in GetAuthenticationProviders(user))
             {
-                // Doesn't look like this is even possible to be used, because of password == null checks below
-                hashedPassword = _defaultAuthenticationProvider.GetHashedString(user, password);
-            }
+                var providerAuthResult = await AuthenticateWithProvider(provider, username, password, user).ConfigureAwait(false);
+                var updatedUsername = providerAuthResult.username;
+                success = providerAuthResult.success;
 
-            if (password == null)
-            {
-                // legacy
-                success = string.Equals(GetAuthenticationProvider(user).GetPasswordHash(user), hashedPassword.Replace("-", string.Empty), StringComparison.OrdinalIgnoreCase);
-            }
-            else
-            {
-                foreach (var provider in GetAuthenticationProviders(user))
+                if (success)
                 {
-                    var providerAuthResult = await AuthenticateWithProvider(provider, username, password, user).ConfigureAwait(false);
-                    updatedUsername = providerAuthResult.Item1;
-                    success = providerAuthResult.Item2;
-
-                    if (success)
-                    {
-                        authenticationProvider = provider;
-                        username = updatedUsername;
-                        break;
-                    }
+                    authenticationProvider = provider;
+                    username = updatedUsername;
+                    break;
                 }
             }
 
-            if (user != null)
+            if (!success
+                && _networkManager.IsInLocalNetwork(remoteEndPoint)
+                && user?.Configuration.EnableLocalPassword == true
+                && !string.IsNullOrEmpty(user.EasyPassword))
             {
-                if (!success && _networkManager.IsInLocalNetwork(remoteEndPoint) && user.Configuration.EnableLocalPassword)
-                {
-                    if (password == null)
-                    {
-                        // legacy
-                        success = string.Equals(GetAuthenticationProvider(user).GetEasyPasswordHash(user), hashedPassword.Replace("-", string.Empty), StringComparison.OrdinalIgnoreCase);
-                    }
-                    else
-                    {
-                        success = string.Equals(GetAuthenticationProvider(user).GetEasyPasswordHash(user), _defaultAuthenticationProvider.GetHashedString(user, password), StringComparison.OrdinalIgnoreCase);
-                    }
-                }
+                // Check easy password
+                var passwordHash = PasswordHash.Parse(user.EasyPassword);
+                var hash = _cryptoProvider.ComputeHash(
+                    passwordHash.Id,
+                    Encoding.UTF8.GetBytes(password),
+                    passwordHash.Salt.ToArray());
+                success = passwordHash.Hash.SequenceEqual(hash);
             }
 
-            return new Tuple<IAuthenticationProvider, string, bool>(authenticationProvider, username, success);
+            return (authenticationProvider, username, success);
         }
 
-        private void UpdateInvalidLoginAttemptCount(User user, int newValue)
+        private void ResetInvalidLoginAttemptCount(User user)
         {
-            if (user.Policy.InvalidLoginAttemptCount == newValue || newValue <= 0)
+            user.Policy.InvalidLoginAttemptCount = 0;
+            UpdateUserPolicy(user, user.Policy, false);
+        }
+
+        private void IncrementInvalidLoginAttemptCount(User user)
+        {
+            int invalidLogins = ++user.Policy.InvalidLoginAttemptCount;
+            int maxInvalidLogins = user.Policy.LoginAttemptsBeforeLockout;
+            if (maxInvalidLogins > 0
+                && invalidLogins >= maxInvalidLogins)
             {
-                return;
-            }
-
-            user.Policy.InvalidLoginAttemptCount = newValue;
-
-            // Check for users without a value here and then fill in the default value
-            // also protect from an always lockout if misconfigured
-            if (user.Policy.LoginAttemptsBeforeLockout == null || user.Policy.LoginAttemptsBeforeLockout == 0)
-            {
-                user.Policy.LoginAttemptsBeforeLockout = user.Policy.IsAdministrator ? 5 : 3;
-            }
-
-            var maxCount = user.Policy.LoginAttemptsBeforeLockout;
-
-            var fireLockout = false;
-
-            // -1 can be used to specify no lockout value
-            if (maxCount != -1 && newValue >= maxCount)
-            {
-                _logger.LogDebug("Disabling user {0} due to {1} unsuccessful login attempts.", user.Name, newValue);
                 user.Policy.IsDisabled = true;
-
-                fireLockout = true;
+                UserLockedOut?.Invoke(this, new GenericEventArgs<User>(user));
+                _logger.LogWarning(
+                    "Disabling user {UserName} due to {Attempts} unsuccessful login attempts.",
+                    user.Name,
+                    invalidLogins);
             }
 
             UpdateUserPolicy(user, user.Policy, false);
-
-            if (fireLockout)
-            {
-                UserLockedOut?.Invoke(this, new GenericEventArgs<User>(user));
-            }
         }
 
         /// <summary>
-        /// Loads the users from the repository
+        /// Loads the users from the repository.
         /// </summary>
-        /// <returns>IEnumerable{User}.</returns>
-        private User[] LoadUsers()
+        private void LoadUsers()
         {
-            var users = UserRepository.RetrieveAllUsers();
+            var users = _userRepository.RetrieveAllUsers();
 
             // There always has to be at least one user.
-            if (users.Count == 0)
+            if (users.Count != 0)
             {
-                var defaultName = Environment.UserName;
-                if (string.IsNullOrWhiteSpace(defaultName))
-                {
-                    defaultName = "MyJellyfinUser";
-                }
-                var name = MakeValidUsername(defaultName);
-
-                var user = InstantiateNewUser(name);
-
-                user.DateLastSaved = DateTime.UtcNow;
-
-                UserRepository.CreateUser(user);
-
-                users.Add(user);
-
-                user.Policy.IsAdministrator = true;
-                user.Policy.EnableContentDeletion = true;
-                user.Policy.EnableRemoteControlOfOtherUsers = true;
-                UpdateUserPolicy(user, user.Policy, false);
+                _users = new ConcurrentDictionary<Guid, User>(
+                    users.Select(x => new KeyValuePair<Guid, User>(x.Id, x)));
+                return;
             }
 
-            return users.ToArray();
+            var defaultName = Environment.UserName;
+            if (string.IsNullOrWhiteSpace(defaultName))
+            {
+                defaultName = "MyJellyfinUser";
+            }
+
+            _logger.LogWarning("No users, creating one with username {UserName}", defaultName);
+
+            var name = MakeValidUsername(defaultName);
+
+            var user = InstantiateNewUser(name);
+
+            user.DateLastSaved = DateTime.UtcNow;
+
+            _userRepository.CreateUser(user);
+
+            user.Policy.IsAdministrator = true;
+            user.Policy.EnableContentDeletion = true;
+            user.Policy.EnableRemoteControlOfOtherUsers = true;
+            UpdateUserPolicy(user, user.Policy, false);
+
+            _users = new ConcurrentDictionary<Guid, User>();
+            _users[user.Id] = user;
         }
+
+#nullable restore
 
         public UserDto GetUserDto(User user, string remoteEndPoint = null)
         {
@@ -593,7 +562,7 @@ namespace Emby.Server.Implementations.Library
                 throw new ArgumentNullException(nameof(user));
             }
 
-            bool hasConfiguredPassword = GetAuthenticationProvider(user).HasPassword(user).Result;
+            bool hasConfiguredPassword = GetAuthenticationProvider(user).HasPassword(user);
             bool hasConfiguredEasyPassword = !string.IsNullOrEmpty(GetAuthenticationProvider(user).GetEasyPasswordHash(user));
 
             bool hasPassword = user.Configuration.EnableLocalPassword && !string.IsNullOrEmpty(remoteEndPoint) && _networkManager.IsInLocalNetwork(remoteEndPoint) ?
@@ -614,7 +583,7 @@ namespace Emby.Server.Implementations.Library
                 Policy = user.Policy
             };
 
-            if (!hasPassword && Users.Count() == 1)
+            if (!hasPassword && _users.Count == 1)
             {
                 dto.EnableAutoLogin = true;
             }
@@ -627,12 +596,12 @@ namespace Emby.Server.Implementations.Library
 
                 try
                 {
-                    _dtoServiceFactory().AttachPrimaryImageAspectRatio(dto, user);
+                    DtoService.AttachPrimaryImageAspectRatio(dto, user);
                 }
                 catch (Exception ex)
                 {
                     // Have to use a catch-all unfortunately because some .net image methods throw plain Exceptions
-                    _logger.LogError(ex, "Error generating PrimaryImageAspectRatio for {user}", user.Name);
+                    _logger.LogError(ex, "Error generating PrimaryImageAspectRatio for {User}", user.Name);
                 }
             }
 
@@ -652,11 +621,11 @@ namespace Emby.Server.Implementations.Library
         {
             try
             {
-                return _imageProcessorFactory().GetImageCacheTag(item, image);
+                return _imageProcessor.GetImageCacheTag(item, image);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting {imageType} image info for {imagePath}", image.Type, image.Path);
+                _logger.LogError(ex, "Error getting {ImageType} image info for {ImagePath}", image.Type, image.Path);
                 return null;
             }
         }
@@ -670,7 +639,7 @@ namespace Emby.Server.Implementations.Library
         {
             foreach (var user in Users)
             {
-                await user.RefreshMetadata(new MetadataRefreshOptions(new DirectoryService(_logger, _fileSystem)), cancellationToken).ConfigureAwait(false);
+                await user.RefreshMetadata(new MetadataRefreshOptions(new DirectoryService(_fileSystem)), cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -689,14 +658,9 @@ namespace Emby.Server.Implementations.Library
                 throw new ArgumentNullException(nameof(user));
             }
 
-            if (string.IsNullOrEmpty(newName))
+            if (string.IsNullOrWhiteSpace(newName))
             {
-                throw new ArgumentNullException(nameof(newName));
-            }
-
-            if (Users.Any(u => u.Id != user.Id && u.Name.Equals(newName, StringComparison.OrdinalIgnoreCase)))
-            {
-                throw new ArgumentException(string.Format("A user with the name '{0}' already exists.", newName));
+                throw new ArgumentException("Invalid username", nameof(newName));
             }
 
             if (user.Name.Equals(newName, StringComparison.Ordinal))
@@ -704,7 +668,16 @@ namespace Emby.Server.Implementations.Library
                 throw new ArgumentException("The new and old names must be different.");
             }
 
-            await user.Rename(newName);
+            if (Users.Any(
+                u => u.Id != user.Id && u.Name.Equals(newName, StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new ArgumentException(string.Format(
+                    CultureInfo.InvariantCulture,
+                    "A user with the name '{0}' already exists.",
+                    newName));
+            }
+
+            await user.Rename(newName).ConfigureAwait(false);
 
             OnUserUpdated(user);
         }
@@ -722,22 +695,29 @@ namespace Emby.Server.Implementations.Library
                 throw new ArgumentNullException(nameof(user));
             }
 
-            if (user.Id.Equals(Guid.Empty) || !Users.Any(u => u.Id.Equals(user.Id)))
+            if (user.Id == Guid.Empty)
             {
-                throw new ArgumentException(string.Format("User with name '{0}' and Id {1} does not exist.", user.Name, user.Id));
+                throw new ArgumentException("Id can't be empty.", nameof(user));
+            }
+
+            if (!_users.ContainsKey(user.Id))
+            {
+                throw new ArgumentException(
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "A user '{0}' with Id {1} does not exist.",
+                        user.Name,
+                        user.Id),
+                    nameof(user));
             }
 
             user.DateModified = DateTime.UtcNow;
             user.DateLastSaved = DateTime.UtcNow;
 
-            UserRepository.UpdateUser(user);
+            _userRepository.UpdateUser(user);
 
             OnUserUpdated(user);
         }
-
-        public event EventHandler<GenericEventArgs<User>> UserCreated;
-
-        private readonly SemaphoreSlim _userListLock = new SemaphoreSlim(1, 1);
 
         /// <summary>
         /// Creates the user.
@@ -746,7 +726,7 @@ namespace Emby.Server.Implementations.Library
         /// <returns>User.</returns>
         /// <exception cref="ArgumentNullException">name</exception>
         /// <exception cref="ArgumentException"></exception>
-        public async Task<User> CreateUser(string name)
+        public User CreateUser(string name)
         {
             if (string.IsNullOrWhiteSpace(name))
             {
@@ -763,88 +743,79 @@ namespace Emby.Server.Implementations.Library
                 throw new ArgumentException(string.Format("A user with the name '{0}' already exists.", name));
             }
 
-            await _userListLock.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            var user = InstantiateNewUser(name);
 
-            try
-            {
-                var user = InstantiateNewUser(name);
+            _users[user.Id] = user;
 
-                var list = Users.ToList();
-                list.Add(user);
-                _users = list.ToArray();
+            user.DateLastSaved = DateTime.UtcNow;
 
-                user.DateLastSaved = DateTime.UtcNow;
+            _userRepository.CreateUser(user);
 
-                UserRepository.CreateUser(user);
+            EventHelper.QueueEventIfNotNull(UserCreated, this, new GenericEventArgs<User>(user), _logger);
 
-                EventHelper.QueueEventIfNotNull(UserCreated, this, new GenericEventArgs<User> { Argument = user }, _logger);
-
-                return user;
-            }
-            finally
-            {
-                _userListLock.Release();
-            }
+            return user;
         }
 
-        /// <summary>
-        /// Deletes the user.
-        /// </summary>
-        /// <param name="user">The user.</param>
-        /// <returns>Task.</returns>
-        /// <exception cref="ArgumentNullException">user</exception>
-        /// <exception cref="ArgumentException"></exception>
-        public async Task DeleteUser(User user)
+        /// <inheritdoc />
+        /// <exception cref="ArgumentNullException">The <c>user</c> is <c>null</c>.</exception>
+        /// <exception cref="ArgumentException">The <c>user</c> doesn't exist, or is the last administrator.</exception>
+        /// <exception cref="InvalidOperationException">The <c>user</c> can't be deleted; there are no other users.</exception>
+        public void DeleteUser(User user)
         {
             if (user == null)
             {
                 throw new ArgumentNullException(nameof(user));
             }
 
-            var allUsers = Users.ToList();
-
-            if (allUsers.FirstOrDefault(u => u.Id == user.Id) == null)
+            if (!_users.ContainsKey(user.Id))
             {
-                throw new ArgumentException(string.Format("The user cannot be deleted because there is no user with the Name {0} and Id {1}.", user.Name, user.Id));
+                throw new ArgumentException(string.Format(
+                    CultureInfo.InvariantCulture,
+                    "The user cannot be deleted because there is no user with the Name {0} and Id {1}.",
+                    user.Name,
+                    user.Id));
             }
 
-            if (allUsers.Count == 1)
+            if (_users.Count == 1)
             {
-                throw new ArgumentException(string.Format("The user '{0}' cannot be deleted because there must be at least one user in the system.", user.Name));
+                throw new InvalidOperationException(string.Format(
+                    CultureInfo.InvariantCulture,
+                    "The user '{0}' cannot be deleted because there must be at least one user in the system.",
+                    user.Name));
             }
 
-            if (user.Policy.IsAdministrator && allUsers.Count(i => i.Policy.IsAdministrator) == 1)
+            if (user.Policy.IsAdministrator
+                && Users.Count(i => i.Policy.IsAdministrator) == 1)
             {
-                throw new ArgumentException(string.Format("The user '{0}' cannot be deleted because there must be at least one admin user in the system.", user.Name));
+                throw new ArgumentException(
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "The user '{0}' cannot be deleted because there must be at least one admin user in the system.",
+                        user.Name),
+                    nameof(user));
             }
 
-            await _userListLock.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            var configPath = GetConfigurationFilePath(user);
 
-            try
-            {
-                var configPath = GetConfigurationFilePath(user);
+            _userRepository.DeleteUser(user);
 
-                UserRepository.DeleteUser(user);
-
-                try
+            // Delete user config dir
+            lock (_configSyncLock)
+                lock (_policySyncLock)
                 {
-                    _fileSystem.DeleteFile(configPath);
+                    try
+                    {
+                        Directory.Delete(user.ConfigurationDirectoryPath, true);
+                    }
+                    catch (IOException ex)
+                    {
+                        _logger.LogError(ex, "Error deleting user config dir: {Path}", user.ConfigurationDirectoryPath);
+                    }
                 }
-                catch (IOException ex)
-                {
-                    _logger.LogError(ex, "Error deleting file {path}", configPath);
-                }
 
-                DeleteUserPolicy(user);
+            _users.TryRemove(user.Id, out _);
 
-                _users = allUsers.Where(i => i.Id != user.Id).ToArray();
-
-                OnUserDeleted(user);
-            }
-            finally
-            {
-                _userListLock.Release();
-            }
+            OnUserDeleted(user);
         }
 
         /// <summary>
@@ -901,8 +872,7 @@ namespace Emby.Server.Implementations.Library
                 Name = name,
                 Id = Guid.NewGuid(),
                 DateCreated = DateTime.UtcNow,
-                DateModified = DateTime.UtcNow,
-                UsesIdForConfigurationPath = true
+                DateModified = DateTime.UtcNow
             };
         }
 
@@ -950,10 +920,9 @@ namespace Emby.Server.Implementations.Library
         public UserPolicy GetUserPolicy(User user)
         {
             var path = GetPolicyFilePath(user);
-
             if (!File.Exists(path))
             {
-                return GetDefaultPolicy(user);
+                return GetDefaultPolicy();
             }
 
             try
@@ -963,19 +932,15 @@ namespace Emby.Server.Implementations.Library
                     return (UserPolicy)_xmlSerializer.DeserializeFromFile(typeof(UserPolicy), path);
                 }
             }
-            catch (IOException)
-            {
-                return GetDefaultPolicy(user);
-            }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error reading policy file: {path}", path);
+                _logger.LogError(ex, "Error reading policy file: {Path}", path);
 
-                return GetDefaultPolicy(user);
+                return GetDefaultPolicy();
             }
         }
 
-        private static UserPolicy GetDefaultPolicy(User user)
+        private static UserPolicy GetDefaultPolicy()
         {
             return new UserPolicy
             {
@@ -984,7 +949,6 @@ namespace Emby.Server.Implementations.Library
             };
         }
 
-        private readonly object _policySyncLock = new object();
         public void UpdateUserPolicy(Guid userId, UserPolicy userPolicy)
         {
             var user = GetUserById(userId);
@@ -1012,28 +976,7 @@ namespace Emby.Server.Implementations.Library
 
             if (fireEvent)
             {
-                UserPolicyUpdated?.Invoke(this, new GenericEventArgs<User> { Argument = user });
-            }
-        }
-
-        private void DeleteUserPolicy(User user)
-        {
-            var path = GetPolicyFilePath(user);
-
-            try
-            {
-                lock (_policySyncLock)
-                {
-                    _fileSystem.DeleteFile(path);
-                }
-            }
-            catch (IOException)
-            {
-
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error deleting policy file");
+                UserPolicyUpdated?.Invoke(this, new GenericEventArgs<User>(user));
             }
         }
 
@@ -1063,19 +1006,14 @@ namespace Emby.Server.Implementations.Library
                     return (UserConfiguration)_xmlSerializer.DeserializeFromFile(typeof(UserConfiguration), path);
                 }
             }
-            catch (IOException)
-            {
-                return new UserConfiguration();
-            }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error reading policy file: {path}", path);
+                _logger.LogError(ex, "Error reading policy file: {Path}", path);
 
                 return new UserConfiguration();
             }
         }
 
-        private readonly object _configSyncLock = new object();
         public void UpdateConfiguration(Guid userId, UserConfiguration config)
         {
             var user = GetUserById(userId);
@@ -1108,7 +1046,7 @@ namespace Emby.Server.Implementations.Library
 
             if (fireEvent)
             {
-                UserConfigurationUpdated?.Invoke(this, new GenericEventArgs<User> { Argument = user });
+                UserConfigurationUpdated?.Invoke(this, new GenericEventArgs<User>(user));
             }
         }
     }

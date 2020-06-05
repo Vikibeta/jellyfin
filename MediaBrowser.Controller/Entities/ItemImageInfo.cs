@@ -1,6 +1,6 @@
 using System;
+using System.Text.Json.Serialization;
 using MediaBrowser.Model.Entities;
-using MediaBrowser.Model.Serialization;
 
 namespace MediaBrowser.Controller.Entities
 {
@@ -28,7 +28,13 @@ namespace MediaBrowser.Controller.Entities
 
         public int Height { get; set; }
 
-        [IgnoreDataMember]
+        /// <summary>
+        /// Gets or sets the blurhash.
+        /// </summary>
+        /// <value>The blurhash.</value>
+        public string BlurHash { get; set; }
+
+        [JsonIgnore]
         public bool IsLocalFile => Path == null || !Path.StartsWith("http", StringComparison.OrdinalIgnoreCase);
     }
 }

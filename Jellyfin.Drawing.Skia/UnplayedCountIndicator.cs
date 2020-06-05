@@ -4,10 +4,25 @@ using SkiaSharp;
 
 namespace Jellyfin.Drawing.Skia
 {
+    /// <summary>
+    /// Static helper class for drawing unplayed count indicators.
+    /// </summary>
     public static class UnplayedCountIndicator
     {
+        /// <summary>
+        /// The x-offset used when drawing an unplayed count indicator.
+        /// </summary>
         private const int OffsetFromTopRightCorner = 38;
 
+        /// <summary>
+        /// Draw an unplayed count indicator in the top right corner of a canvas.
+        /// </summary>
+        /// <param name="canvas">The canvas to draw the indicator on.</param>
+        /// <param name="imageSize">
+        /// The dimensions of the image to draw the indicator on. The width is used to determine the x-position of the
+        /// indicator.
+        /// </param>
+        /// <param name="count">The number to draw in the indicator.</param>
         public static void DrawUnplayedCountIndicator(SKCanvas canvas, ImageDimensions imageSize, int count)
         {
             var x = imageSize.Width - OffsetFromTopRightCorner;
@@ -17,8 +32,9 @@ namespace Jellyfin.Drawing.Skia
             {
                 paint.Color = SKColor.Parse("#CC00A4DC");
                 paint.Style = SKPaintStyle.Fill;
-                canvas.DrawCircle((float)x, OffsetFromTopRightCorner, 20, paint);
+                canvas.DrawCircle(x, OffsetFromTopRightCorner, 20, paint);
             }
+
             using (var paint = new SKPaint())
             {
                 paint.Color = new SKColor(255, 255, 255, 255);
@@ -33,6 +49,7 @@ namespace Jellyfin.Drawing.Skia
                 {
                     x -= 7;
                 }
+
                 if (text.Length == 2)
                 {
                     x -= 13;
@@ -44,7 +61,7 @@ namespace Jellyfin.Drawing.Skia
                     paint.TextSize = 18;
                 }
 
-                canvas.DrawText(text, (float)x, y, paint);
+                canvas.DrawText(text, x, y, paint);
             }
         }
     }

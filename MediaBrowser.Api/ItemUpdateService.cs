@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
-using System.Threading.Tasks;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Audio;
@@ -16,6 +15,7 @@ using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Globalization;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Services;
+using Microsoft.Extensions.Logging;
 
 namespace MediaBrowser.Api
 {
@@ -49,19 +49,25 @@ namespace MediaBrowser.Api
         private readonly ILibraryManager _libraryManager;
         private readonly IProviderManager _providerManager;
         private readonly ILocalizationManager _localizationManager;
-        private readonly IServerConfigurationManager _config;
         private readonly IFileSystem _fileSystem;
 
-        public ItemUpdateService(IFileSystem fileSystem, ILibraryManager libraryManager, IProviderManager providerManager, ILocalizationManager localizationManager, IServerConfigurationManager config)
+        public ItemUpdateService(
+            ILogger<ItemUpdateService> logger,
+            IServerConfigurationManager serverConfigurationManager,
+            IHttpResultFactory httpResultFactory,
+            IFileSystem fileSystem,
+            ILibraryManager libraryManager,
+            IProviderManager providerManager,
+            ILocalizationManager localizationManager)
+            : base(logger, serverConfigurationManager, httpResultFactory)
         {
             _libraryManager = libraryManager;
             _providerManager = providerManager;
             _localizationManager = localizationManager;
-            _config = config;
             _fileSystem = fileSystem;
         }
 
-        public async Task<object> Get(GetMetadataEditorInfo request)
+        public object Get(GetMetadataEditorInfo request)
         {
             var item = _libraryManager.GetItemById(request.ItemId);
 
@@ -69,8 +75,8 @@ namespace MediaBrowser.Api
             {
                 ParentalRatingOptions = _localizationManager.GetParentalRatings().ToArray(),
                 ExternalIdInfos = _providerManager.GetExternalIdInfos(item).ToArray(),
-                Countries = await _localizationManager.GetCountries(),
-                Cultures = _localizationManager.GetCultures()
+                Countries = _localizationManager.GetCountries().ToArray(),
+                Cultures = _localizationManager.GetCultures().ToArray()
             };
 
             if (!item.IsVirtualItem && !(item is ICollectionFolder) && !(item is UserView) && !(item is AggregateFolder) && !(item is LiveTvChannel) && !(item is IItemByName) &&
@@ -101,7 +107,7 @@ namespace MediaBrowser.Api
             var item = _libraryManager.GetItemById(request.ItemId);
             var path = item.ContainingFolderPath;
 
-            var types = _config.Configuration.ContentTypes
+            var types = ServerConfigurationManager.Configuration.ContentTypes
                 .Where(i => !string.IsNullOrWhiteSpace(i.Name))
                 .Where(i => !string.Equals(i.Name, path, StringComparison.OrdinalIgnoreCase))
                 .ToList();
@@ -115,8 +121,8 @@ namespace MediaBrowser.Api
                 });
             }
 
-            _config.Configuration.ContentTypes = types.ToArray();
-            _config.SaveConfiguration();
+            ServerConfigurationManager.Configuration.ContentTypes = types.ToArray();
+            ServerConfigurationManager.SaveConfiguration();
         }
 
         private List<NameValuePair> GetContentTypeOptions(bool isForItem)
@@ -225,13 +231,15 @@ namespace MediaBrowser.Api
 
             if (displayOrderChanged)
             {
-                _providerManager.QueueRefresh(series.Id, new MetadataRefreshOptions(new DirectoryService(Logger, _fileSystem))
-                {
-                    MetadataRefreshMode = MetadataRefreshMode.FullRefresh,
-                    ImageRefreshMode = MetadataRefreshMode.FullRefresh,
-                    ReplaceAllMetadata = true
-
-                }, RefreshPriority.High);
+                _providerManager.QueueRefresh(
+                    series.Id,
+                    new MetadataRefreshOptions(new DirectoryService(_fileSystem))
+                    {
+                        MetadataRefreshMode = MetadataRefreshMode.FullRefresh,
+                        ImageRefreshMode = MetadataRefreshMode.FullRefresh,
+                        ReplaceAllMetadata = true
+                    },
+                    RefreshPriority.High);
             }
         }
 
@@ -255,8 +263,7 @@ namespace MediaBrowser.Api
             item.Overview = request.Overview;
             item.Genres = request.Genres;
 
-            var episode = item as Episode;
-            if (episode != null)
+            if (item is Episode episode)
             {
                 episode.AirsAfterSeasonNumber = request.AirsAfterSeasonNumber;
                 episode.AirsBeforeEpisodeNumber = request.AirsBeforeEpisodeNumber;
@@ -294,14 +301,12 @@ namespace MediaBrowser.Api
             item.PreferredMetadataCountryCode = request.PreferredMetadataCountryCode;
             item.PreferredMetadataLanguage = request.PreferredMetadataLanguage;
 
-            var hasDisplayOrder = item as IHasDisplayOrder;
-            if (hasDisplayOrder != null)
+            if (item is IHasDisplayOrder hasDisplayOrder)
             {
                 hasDisplayOrder.DisplayOrder = request.DisplayOrder;
             }
 
-            var hasAspectRatio = item as IHasAspectRatio;
-            if (hasAspectRatio != null)
+            if (item is IHasAspectRatio hasAspectRatio)
             {
                 hasAspectRatio.AspectRatio = request.AspectRatio;
             }
@@ -329,16 +334,14 @@ namespace MediaBrowser.Api
 
             item.ProviderIds = request.ProviderIds;
 
-            var video = item as Video;
-            if (video != null)
+            if (item is Video video)
             {
                 video.Video3DFormat = request.Video3DFormat;
             }
 
             if (request.AlbumArtists != null)
             {
-                var hasAlbumArtists = item as IHasAlbumArtist;
-                if (hasAlbumArtists != null)
+                if (item is IHasAlbumArtist hasAlbumArtists)
                 {
                     hasAlbumArtists.AlbumArtists = request
                         .AlbumArtists
@@ -349,8 +352,7 @@ namespace MediaBrowser.Api
 
             if (request.ArtistItems != null)
             {
-                var hasArtists = item as IHasArtist;
-                if (hasArtists != null)
+                if (item is IHasArtist hasArtists)
                 {
                     hasArtists.Artists = request
                         .ArtistItems
@@ -359,20 +361,17 @@ namespace MediaBrowser.Api
                 }
             }
 
-            var song = item as Audio;
-            if (song != null)
+            if (item is Audio song)
             {
                 song.Album = request.Album;
             }
 
-            var musicVideo = item as MusicVideo;
-            if (musicVideo != null)
+            if (item is MusicVideo musicVideo)
             {
                 musicVideo.Album = request.Album;
             }
 
-            var series = item as Series;
-            if (series != null)
+            if (item is Series series)
             {
                 series.Status = GetSeriesStatus(request);
 
@@ -392,7 +391,6 @@ namespace MediaBrowser.Api
             }
 
             return (SeriesStatus)Enum.Parse(typeof(SeriesStatus), item.Status, true);
-
         }
     }
 }

@@ -1,6 +1,7 @@
 using System;
-using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Audio;
@@ -8,8 +9,8 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Entities;
-using MediaBrowser.Model.Services;
 using MediaBrowser.Model.Querying;
+using MediaBrowser.Model.Services;
 using Microsoft.Extensions.Logging;
 
 namespace MediaBrowser.Api
@@ -17,19 +18,35 @@ namespace MediaBrowser.Api
     /// <summary>
     /// Class BaseApiService
     /// </summary>
-    public class BaseApiService : IService, IRequiresRequest
+    public abstract class BaseApiService : IService, IRequiresRequest
     {
-        /// <summary>
-        /// Gets or sets the logger.
-        /// </summary>
-        /// <value>The logger.</value>
-        public ILogger Logger => ApiEntryPoint.Instance.Logger;
+        public BaseApiService(
+            ILogger<BaseApiService> logger,
+            IServerConfigurationManager serverConfigurationManager,
+            IHttpResultFactory httpResultFactory)
+        {
+            Logger = logger;
+            ServerConfigurationManager = serverConfigurationManager;
+            ResultFactory = httpResultFactory;
+        }
 
         /// <summary>
-        /// Gets or sets the HTTP result factory.
+        /// Gets the logger.
+        /// </summary>
+        /// <value>The logger.</value>
+        protected ILogger<BaseApiService> Logger { get; }
+
+        /// <summary>
+        /// Gets or sets the server configuration manager.
+        /// </summary>
+        /// <value>The server configuration manager.</value>
+        protected IServerConfigurationManager ServerConfigurationManager { get; }
+
+        /// <summary>
+        /// Gets the HTTP result factory.
         /// </summary>
         /// <value>The HTTP result factory.</value>
-        public IHttpResultFactory ResultFactory => ApiEntryPoint.Instance.ResultFactory;
+        protected IHttpResultFactory ResultFactory { get; }
 
         /// <summary>
         /// Gets or sets the request context.
@@ -37,19 +54,13 @@ namespace MediaBrowser.Api
         /// <value>The request context.</value>
         public IRequest Request { get; set; }
 
-        public string GetHeader(string name)
-        {
-            return Request.Headers[name];
-        }
+        public string GetHeader(string name) => Request.Headers[name];
 
         public static string[] SplitValue(string value, char delim)
         {
-            if (value == null)
-            {
-                return Array.Empty<string>();
-            }
-
-            return value.Split(new[] { delim }, StringSplitOptions.RemoveEmptyEntries);
+            return value == null
+                ? Array.Empty<string>()
+                : value.Split(new[] { delim }, StringSplitOptions.RemoveEmptyEntries);
         }
 
         public static Guid[] GetGuids(string value)
@@ -83,19 +94,10 @@ namespace MediaBrowser.Api
             var authenticatedUser = auth.User;
 
             // If they're going to update the record of another user, they must be an administrator
-            if (!userId.Equals(auth.UserId))
+            if ((!userId.Equals(auth.UserId) && !authenticatedUser.Policy.IsAdministrator)
+                || (restrictUserPreferences && !authenticatedUser.Policy.EnableUserPreferenceAccess))
             {
-                if (!authenticatedUser.Policy.IsAdministrator)
-                {
-                    throw new SecurityException("Unauthorized access.");
-                }
-            }
-            else if (restrictUserPreferences)
-            {
-                if (!authenticatedUser.Policy.EnableUserPreferenceAccess)
-                {
-                    throw new SecurityException("Unauthorized access.");
-                }
+                throw new SecurityException("Unauthorized access.");
             }
         }
 
@@ -124,8 +126,8 @@ namespace MediaBrowser.Api
                 options.Fields = hasFields.GetItemFields();
             }
 
-            if (!options.ContainsField(Model.Querying.ItemFields.RecursiveItemCount)
-                || !options.ContainsField(Model.Querying.ItemFields.ChildCount))
+            if (!options.ContainsField(ItemFields.RecursiveItemCount)
+                || !options.ContainsField(ItemFields.ChildCount))
             {
                 var client = authContext.GetAuthorizationInfo(Request).Client ?? string.Empty;
                 if (client.IndexOf("kodi", StringComparison.OrdinalIgnoreCase) != -1 ||
@@ -136,7 +138,7 @@ namespace MediaBrowser.Api
                     int oldLen = options.Fields.Length;
                     var arr = new ItemFields[oldLen + 1];
                     options.Fields.CopyTo(arr, 0);
-                    arr[oldLen] = Model.Querying.ItemFields.RecursiveItemCount;
+                    arr[oldLen] = ItemFields.RecursiveItemCount;
                     options.Fields = arr;
                 }
 
@@ -152,7 +154,7 @@ namespace MediaBrowser.Api
                     int oldLen = options.Fields.Length;
                     var arr = new ItemFields[oldLen + 1];
                     options.Fields.CopyTo(arr, 0);
-                    arr[oldLen] = Model.Querying.ItemFields.ChildCount;
+                    arr[oldLen] = ItemFields.ChildCount;
                     options.Fields = arr;
                 }
             }
@@ -268,61 +270,116 @@ namespace MediaBrowser.Api
 
             }).OfType<T>().FirstOrDefault();
 
-            if (result == null)
+            result ??= libraryManager.GetItemList(new InternalItemsQuery
             {
-                result = libraryManager.GetItemList(new InternalItemsQuery
-                {
-                    Name = name.Replace(BaseItem.SlugChar, '/'),
-                    IncludeItemTypes = new[] { typeof(T).Name },
-                    DtoOptions = dtoOptions
+                Name = name.Replace(BaseItem.SlugChar, '/'),
+                IncludeItemTypes = new[] { typeof(T).Name },
+                DtoOptions = dtoOptions
 
-                }).OfType<T>().FirstOrDefault();
-            }
+            }).OfType<T>().FirstOrDefault();
 
-            if (result == null)
+            result ??= libraryManager.GetItemList(new InternalItemsQuery
             {
-                result = libraryManager.GetItemList(new InternalItemsQuery
-                {
-                    Name = name.Replace(BaseItem.SlugChar, '?'),
-                    IncludeItemTypes = new[] { typeof(T).Name },
-                    DtoOptions = dtoOptions
+                Name = name.Replace(BaseItem.SlugChar, '?'),
+                IncludeItemTypes = new[] { typeof(T).Name },
+                DtoOptions = dtoOptions
 
-                }).OfType<T>().FirstOrDefault();
-            }
+            }).OfType<T>().FirstOrDefault();
 
             return result;
         }
 
-        protected string GetPathValue(int index)
+        /// <summary>
+        /// Gets the path segment at the specified index.
+        /// </summary>
+        /// <param name="index">The index of the path segment.</param>
+        /// <returns>The path segment at the specified index.</returns>
+        /// <exception cref="IndexOutOfRangeException" >Path doesn't contain enough segments.</exception>
+        /// <exception cref="InvalidDataException" >Path doesn't start with the base url.</exception>
+        protected internal ReadOnlySpan<char> GetPathValue(int index)
         {
-            var pathInfo = Parse(Request.PathInfo);
-            var first = pathInfo[0];
+            static void ThrowIndexOutOfRangeException()
+                => throw new IndexOutOfRangeException("Path doesn't contain enough segments.");
 
-            // backwards compatibility
-            if (string.Equals(first, "mediabrowser", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(first, "emby", StringComparison.OrdinalIgnoreCase))
+            static void ThrowInvalidDataException()
+                => throw new InvalidDataException("Path doesn't start with the base url.");
+
+            ReadOnlySpan<char> path = Request.PathInfo;
+
+            // Remove the protocol part from the url
+            int pos = path.LastIndexOf("://");
+            if (pos != -1)
             {
-                index++;
+                path = path.Slice(pos + 3);
             }
 
-            return pathInfo[index];
-        }
-
-        private static string[] Parse(string pathUri)
-        {
-            var actionParts = pathUri.Split(new[] { "://" }, StringSplitOptions.None);
-
-            var pathInfo = actionParts[actionParts.Length - 1];
-
-            var optionsPos = pathInfo.LastIndexOf('?');
-            if (optionsPos != -1)
+            // Remove the query string
+            pos = path.LastIndexOf('?');
+            if (pos != -1)
             {
-                pathInfo = pathInfo.Substring(0, optionsPos);
+                path = path.Slice(0, pos);
             }
 
-            var args = pathInfo.Split('/');
+            // Remove the domain
+            pos = path.IndexOf('/');
+            if (pos != -1)
+            {
+                path = path.Slice(pos);
+            }
 
-            return args.Skip(1).ToArray();
+            // Remove base url
+            string baseUrl = ServerConfigurationManager.Configuration.BaseUrl;
+            int baseUrlLen = baseUrl.Length;
+            if (baseUrlLen != 0)
+            {
+                if (path.StartsWith(baseUrl, StringComparison.OrdinalIgnoreCase))
+                {
+                    path = path.Slice(baseUrlLen);
+                }
+                else
+                {
+                    // The path doesn't start with the base url,
+                    // how did we get here?
+                    ThrowInvalidDataException();
+                }
+            }
+
+            // Remove leading /
+            path = path.Slice(1);
+
+            // Backwards compatibility
+            const string Emby = "emby/";
+            if (path.StartsWith(Emby, StringComparison.OrdinalIgnoreCase))
+            {
+                path = path.Slice(Emby.Length);
+            }
+
+            const string MediaBrowser = "mediabrowser/";
+            if (path.StartsWith(MediaBrowser, StringComparison.OrdinalIgnoreCase))
+            {
+                path = path.Slice(MediaBrowser.Length);
+            }
+
+            // Skip segments until we are at the right index
+            for (int i = 0; i < index; i++)
+            {
+                pos = path.IndexOf('/');
+                if (pos == -1)
+                {
+                    ThrowIndexOutOfRangeException();
+                }
+
+                path = path.Slice(pos + 1);
+            }
+
+            // Remove the rest
+            pos = path.IndexOf('/');
+            if (pos != -1)
+            {
+                path = path.Slice(0, pos);
+            }
+
+            return path;
         }
 
         /// <summary>

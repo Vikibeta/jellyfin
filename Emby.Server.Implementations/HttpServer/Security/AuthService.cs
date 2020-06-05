@@ -1,49 +1,59 @@
+#pragma warning disable CS1591
+
 using System;
 using System.Linq;
+using System.Security.Authentication;
+using Emby.Server.Implementations.SocketSharp;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
-using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Controller.Security;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Services;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 
 namespace Emby.Server.Implementations.HttpServer.Security
 {
     public class AuthService : IAuthService
     {
+        private readonly ILogger<AuthService> _logger;
+        private readonly IAuthorizationContext _authorizationContext;
+        private readonly ISessionManager _sessionManager;
         private readonly IServerConfigurationManager _config;
+        private readonly INetworkManager _networkManager;
 
-        public AuthService(IUserManager userManager, IAuthorizationContext authorizationContext, IServerConfigurationManager config, ISessionManager sessionManager, INetworkManager networkManager)
+        public AuthService(
+            ILogger<AuthService> logger,
+            IAuthorizationContext authorizationContext,
+            IServerConfigurationManager config,
+            ISessionManager sessionManager,
+            INetworkManager networkManager)
         {
-            AuthorizationContext = authorizationContext;
+            _logger = logger;
+            _authorizationContext = authorizationContext;
             _config = config;
-            SessionManager = sessionManager;
-            UserManager = userManager;
-            NetworkManager = networkManager;
+            _sessionManager = sessionManager;
+            _networkManager = networkManager;
         }
-
-        public IUserManager UserManager { get; private set; }
-        public IAuthorizationContext AuthorizationContext { get; private set; }
-        public ISessionManager SessionManager { get; private set; }
-        public INetworkManager NetworkManager { get; private set; }
-
-        /// <summary>
-        /// Redirect the client to a specific URL if authentication failed.
-        /// If this property is null, simply `401 Unauthorized` is returned.
-        /// </summary>
-        public string HtmlRedirect { get; set; }
 
         public void Authenticate(IRequest request, IAuthenticationAttributes authAttribtues)
         {
             ValidateUser(request, authAttribtues);
         }
 
-        private void ValidateUser(IRequest request, IAuthenticationAttributes authAttribtues)
+        public User Authenticate(HttpRequest request, IAuthenticationAttributes authAttributes)
+        {
+            var req = new WebSocketSharpRequest(request, null, request.Path, _logger);
+            var user = ValidateUser(req, authAttributes);
+            return user;
+        }
+
+        private User ValidateUser(IRequest request, IAuthenticationAttributes authAttribtues)
         {
             // This code is executed before the service
-            var auth = AuthorizationContext.GetAuthorizationInfo(request);
+            var auth = _authorizationContext.GetAuthorizationInfo(request);
 
             if (!IsExemptFromAuthenticationToken(authAttribtues, request))
             {
@@ -57,9 +67,9 @@ namespace Emby.Server.Implementations.HttpServer.Security
 
             var user = auth.User;
 
-            if (user == null & !auth.UserId.Equals(Guid.Empty))
+            if (user == null && auth.UserId != Guid.Empty)
             {
-                throw new SecurityException("User with Id " + auth.UserId + " not found");
+                throw new AuthenticationException("User with Id " + auth.UserId + " not found");
             }
 
             if (user != null)
@@ -80,45 +90,40 @@ namespace Emby.Server.Implementations.HttpServer.Security
                 !string.IsNullOrEmpty(auth.Client) &&
                 !string.IsNullOrEmpty(auth.Device))
             {
-                SessionManager.LogSessionActivity(auth.Client,
+                _sessionManager.LogSessionActivity(auth.Client,
                     auth.Version,
                     auth.DeviceId,
                     auth.Device,
                     request.RemoteIp,
                     user);
             }
+
+            return user;
         }
 
-        private void ValidateUserAccess(User user, IRequest request,
+        private void ValidateUserAccess(
+            User user,
+            IRequest request,
             IAuthenticationAttributes authAttribtues,
             AuthorizationInfo auth)
         {
             if (user.Policy.IsDisabled)
             {
-                throw new SecurityException("User account has been disabled.")
-                {
-                    SecurityExceptionType = SecurityExceptionType.Unauthenticated
-                };
+                throw new SecurityException("User account has been disabled.");
             }
 
-            if (!user.Policy.EnableRemoteAccess && !NetworkManager.IsInLocalNetwork(request.RemoteIp))
+            if (!user.Policy.EnableRemoteAccess && !_networkManager.IsInLocalNetwork(request.RemoteIp))
             {
-                throw new SecurityException("User account has been disabled.")
-                {
-                    SecurityExceptionType = SecurityExceptionType.Unauthenticated
-                };
+                throw new SecurityException("User account has been disabled.");
             }
 
-            if (!user.Policy.IsAdministrator &&
-                !authAttribtues.EscapeParentalControl &&
-                !user.IsParentalScheduleAllowed())
+            if (!user.Policy.IsAdministrator
+                && !authAttribtues.EscapeParentalControl
+                && !user.IsParentalScheduleAllowed())
             {
-                request.Response.AddHeader("X-Application-Error-Code", "ParentalControl");
+                request.Response.Headers.Add("X-Application-Error-Code", "ParentalControl");
 
-                throw new SecurityException("This user account is not allowed access at this time.")
-                {
-                    SecurityExceptionType = SecurityExceptionType.ParentalControl
-                };
+                throw new SecurityException("This user account is not allowed access at this time.");
             }
         }
 
@@ -177,30 +182,23 @@ namespace Emby.Server.Implementations.HttpServer.Security
             {
                 if (user == null || !user.Policy.IsAdministrator)
                 {
-                    throw new SecurityException("User does not have admin access.")
-                    {
-                        SecurityExceptionType = SecurityExceptionType.Unauthenticated
-                    };
+                    throw new SecurityException("User does not have admin access.");
                 }
             }
+
             if (roles.Contains("delete", StringComparer.OrdinalIgnoreCase))
             {
                 if (user == null || !user.Policy.EnableContentDeletion)
                 {
-                    throw new SecurityException("User does not have delete access.")
-                    {
-                        SecurityExceptionType = SecurityExceptionType.Unauthenticated
-                    };
+                    throw new SecurityException("User does not have delete access.");
                 }
             }
+
             if (roles.Contains("download", StringComparer.OrdinalIgnoreCase))
             {
                 if (user == null || !user.Policy.EnableContentDownloading)
                 {
-                    throw new SecurityException("User does not have download access.")
-                    {
-                        SecurityExceptionType = SecurityExceptionType.Unauthenticated
-                    };
+                    throw new SecurityException("User does not have download access.");
                 }
             }
         }
@@ -215,14 +213,14 @@ namespace Emby.Server.Implementations.HttpServer.Security
         {
             if (string.IsNullOrEmpty(token))
             {
-                throw new SecurityException("Access token is required.");
+                throw new AuthenticationException("Access token is required.");
             }
 
             var info = GetTokenInfo(request);
 
             if (info == null)
             {
-                throw new SecurityException("Access token is invalid or expired.");
+                throw new AuthenticationException("Access token is invalid or expired.");
             }
 
             //if (!string.IsNullOrEmpty(info.UserId))

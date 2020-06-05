@@ -1,8 +1,9 @@
-using System.Threading.Tasks;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Globalization;
 using MediaBrowser.Model.Services;
+using Microsoft.Extensions.Logging;
 
 namespace MediaBrowser.Api
 {
@@ -53,7 +54,12 @@ namespace MediaBrowser.Api
         /// Initializes a new instance of the <see cref="LocalizationService"/> class.
         /// </summary>
         /// <param name="localization">The localization.</param>
-        public LocalizationService(ILocalizationManager localization)
+        public LocalizationService(
+            ILogger<LocalizationService> logger,
+            IServerConfigurationManager serverConfigurationManager,
+            IHttpResultFactory httpResultFactory,
+            ILocalizationManager localization)
+            : base(logger, serverConfigurationManager, httpResultFactory)
         {
             _localization = localization;
         }
@@ -82,9 +88,9 @@ namespace MediaBrowser.Api
         /// </summary>
         /// <param name="request">The request.</param>
         /// <returns>System.Object.</returns>
-        public async Task<object> Get(GetCountries request)
+        public object Get(GetCountries request)
         {
-            var result = await _localization.GetCountries();
+            var result = _localization.GetCountries();
 
             return ToOptimizedResult(result);
         }

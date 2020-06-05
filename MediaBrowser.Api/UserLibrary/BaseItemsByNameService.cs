@@ -1,14 +1,15 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Net;
-using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Querying;
 using MediaBrowser.Model.Services;
+using Microsoft.Extensions.Logging;
 
 namespace MediaBrowser.Api.UserLibrary
 {
@@ -20,35 +21,45 @@ namespace MediaBrowser.Api.UserLibrary
         where TItemType : BaseItem, IItemByName
     {
         /// <summary>
-        /// The _user manager
-        /// </summary>
-        protected readonly IUserManager UserManager;
-        /// <summary>
-        /// The library manager
-        /// </summary>
-        protected readonly ILibraryManager LibraryManager;
-        protected readonly IUserDataManager UserDataRepository;
-        protected readonly IItemRepository ItemRepository;
-        protected IDtoService DtoService { get; private set; }
-        protected IAuthorizationContext AuthorizationContext { get; private set; }
-
-        /// <summary>
         /// Initializes a new instance of the <see cref="BaseItemsByNameService{TItemType}" /> class.
         /// </summary>
         /// <param name="userManager">The user manager.</param>
         /// <param name="libraryManager">The library manager.</param>
         /// <param name="userDataRepository">The user data repository.</param>
-        /// <param name="itemRepository">The item repository.</param>
         /// <param name="dtoService">The dto service.</param>
-        protected BaseItemsByNameService(IUserManager userManager, ILibraryManager libraryManager, IUserDataManager userDataRepository, IItemRepository itemRepository, IDtoService dtoService, IAuthorizationContext authorizationContext)
+        protected BaseItemsByNameService(
+            ILogger<BaseItemsByNameService<TItemType>> logger,
+            IServerConfigurationManager serverConfigurationManager,
+            IHttpResultFactory httpResultFactory,
+            IUserManager userManager,
+            ILibraryManager libraryManager,
+            IUserDataManager userDataRepository,
+            IDtoService dtoService,
+            IAuthorizationContext authorizationContext)
+            : base(logger, serverConfigurationManager, httpResultFactory)
         {
             UserManager = userManager;
             LibraryManager = libraryManager;
             UserDataRepository = userDataRepository;
-            ItemRepository = itemRepository;
             DtoService = dtoService;
             AuthorizationContext = authorizationContext;
         }
+
+        /// <summary>
+        /// Gets the _user manager.
+        /// </summary>
+        protected IUserManager UserManager { get; }
+
+        /// <summary>
+        /// Gets the library manager
+        /// </summary>
+        protected ILibraryManager LibraryManager { get; }
+
+        protected IUserDataManager UserDataRepository { get; }
+
+        protected IDtoService DtoService { get; }
+
+        protected IAuthorizationContext AuthorizationContext { get; }
 
         protected BaseItem GetParentItem(GetItemsByName request)
         {
@@ -71,8 +82,7 @@ namespace MediaBrowser.Api.UserLibrary
         {
             var parent = GetParentItem(request);
 
-            var collectionFolder = parent as IHasCollectionType;
-            if (collectionFolder != null)
+            if (parent is IHasCollectionType collectionFolder)
             {
                 return collectionFolder.CollectionType;
             }
@@ -263,7 +273,7 @@ namespace MediaBrowser.Api.UserLibrary
                 DtoOptions = dtoOptions
             };
 
-            Func<BaseItem, bool> filter = i => FilterItem(request, i, excludeItemTypes, includeItemTypes, mediaTypes);
+            bool Filter(BaseItem i) => FilterItem(request, i, excludeItemTypes, includeItemTypes, mediaTypes);
 
             if (parentItem.IsFolder)
             {
@@ -273,18 +283,18 @@ namespace MediaBrowser.Api.UserLibrary
                 {
                     items = request.Recursive ?
                         folder.GetRecursiveChildren(user, query).ToList() :
-                        folder.GetChildren(user, true).Where(filter).ToList();
+                        folder.GetChildren(user, true).Where(Filter).ToList();
                 }
                 else
                 {
                     items = request.Recursive ?
-                        folder.GetRecursiveChildren(filter) :
-                        folder.Children.Where(filter).ToList();
+                        folder.GetRecursiveChildren(Filter) :
+                        folder.Children.Where(Filter).ToList();
                 }
             }
             else
             {
-                items = new[] { parentItem }.Where(filter).ToList();
+                items = new[] { parentItem }.Where(Filter).ToList();
             }
 
             var extractedItems = GetAllItems(request, items);
@@ -335,30 +345,21 @@ namespace MediaBrowser.Api.UserLibrary
         private bool FilterItem(GetItemsByName request, BaseItem f, string[] excludeItemTypes, string[] includeItemTypes, string[] mediaTypes)
         {
             // Exclude item types
-            if (excludeItemTypes.Length > 0)
+            if (excludeItemTypes.Length > 0 && excludeItemTypes.Contains(f.GetType().Name, StringComparer.OrdinalIgnoreCase))
             {
-                if (excludeItemTypes.Contains(f.GetType().Name, StringComparer.OrdinalIgnoreCase))
-                {
-                    return false;
-                }
+                return false;
             }
 
             // Include item types
-            if (includeItemTypes.Length > 0)
+            if (includeItemTypes.Length > 0 && !includeItemTypes.Contains(f.GetType().Name, StringComparer.OrdinalIgnoreCase))
             {
-                if (!includeItemTypes.Contains(f.GetType().Name, StringComparer.OrdinalIgnoreCase))
-                {
-                    return false;
-                }
+                return false;
             }
 
             // Include MediaTypes
-            if (mediaTypes.Length > 0)
+            if (mediaTypes.Length > 0 && !mediaTypes.Contains(f.MediaType ?? string.Empty, StringComparer.OrdinalIgnoreCase))
             {
-                if (!mediaTypes.Contains(f.MediaType ?? string.Empty, StringComparer.OrdinalIgnoreCase))
-                {
-                    return false;
-                }
+                return false;
             }
 
             return true;

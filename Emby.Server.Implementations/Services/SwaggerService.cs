@@ -1,9 +1,11 @@
-﻿using System;
+#pragma warning disable CS1591
+
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using Emby.Server.Implementations.HttpServer;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Services;
-using Emby.Server.Implementations.HttpServer;
 
 namespace Emby.Server.Implementations.Services
 {
@@ -175,7 +177,7 @@ namespace Emby.Server.Implementations.Services
 
         private SwaggerTag[] GetTags()
         {
-            return new SwaggerTag[] { };
+            return Array.Empty<SwaggerTag>();
         }
 
         private Dictionary<string, SwaggerDefinition> GetDefinitions()
@@ -241,7 +243,7 @@ namespace Emby.Server.Implementations.Services
 
                     responses = responses,
 
-                    security = new [] { apiKeySecurity }
+                    security = new[] { apiKeySecurity }
                 };
             }
 

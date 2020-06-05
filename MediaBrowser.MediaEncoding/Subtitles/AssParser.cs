@@ -5,7 +5,6 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
-using MediaBrowser.Model.Extensions;
 using MediaBrowser.Model.MediaInfo;
 
 namespace MediaBrowser.MediaEncoding.Subtitles
@@ -34,10 +33,12 @@ namespace MediaBrowser.MediaEncoding.Subtitles
                     {
                         continue;
                     }
+
                     if (line.StartsWith("["))
+                    {
                         break;
-                    if (string.IsNullOrEmpty(line))
-                        continue;
+                    }
+
                     var subEvent = new SubtitleTrackEvent { Id = eventIndex.ToString(_usCulture) };
                     eventIndex++;
                     var sections = line.Substring(10).Split(',');

@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using MediaBrowser.Controller.Configuration;
@@ -6,11 +7,10 @@ using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Net;
-using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Dto;
-using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Querying;
 using MediaBrowser.Model.Services;
+using Microsoft.Extensions.Logging;
 
 namespace MediaBrowser.Api
 {
@@ -50,19 +50,21 @@ namespace MediaBrowser.Api
         private readonly ILibraryManager _libraryManager;
         private readonly IUserManager _userManager;
         private readonly IDtoService _dtoService;
-        private readonly IFileSystem _fileSystem;
-        private readonly IItemRepository _itemRepo;
-        private readonly IServerConfigurationManager _config;
         private readonly IAuthorizationContext _authContext;
 
-        public VideosService(ILibraryManager libraryManager, IUserManager userManager, IDtoService dtoService, IItemRepository itemRepo, IFileSystem fileSystem, IServerConfigurationManager config, IAuthorizationContext authContext)
+        public VideosService(
+            ILogger<VideosService> logger,
+            IServerConfigurationManager serverConfigurationManager,
+            IHttpResultFactory httpResultFactory,
+            ILibraryManager libraryManager,
+            IUserManager userManager,
+            IDtoService dtoService,
+            IAuthorizationContext authContext)
+            : base(logger, serverConfigurationManager, httpResultFactory)
         {
             _libraryManager = libraryManager;
             _userManager = userManager;
             _dtoService = dtoService;
-            _itemRepo = itemRepo;
-            _fileSystem = fileSystem;
-            _config = config;
             _authContext = authContext;
         }
 
@@ -83,9 +85,8 @@ namespace MediaBrowser.Api
 
             var dtoOptions = GetDtoOptions(_authContext, request);
 
-            var video = item as Video;
             BaseItemDto[] items;
-            if (video != null)
+            if (item is Video video)
             {
                 items = video.GetAdditionalParts()
                     .Select(i => _dtoService.GetBaseItemDto(i, dtoOptions, user, video))
@@ -93,7 +94,7 @@ namespace MediaBrowser.Api
             }
             else
             {
-                items = new BaseItemDto[] { };
+                items = Array.Empty<BaseItemDto>();
             }
 
             var result = new QueryResult<BaseItemDto>
@@ -127,6 +128,7 @@ namespace MediaBrowser.Api
             var items = request.Ids.Split(',')
                 .Select(i => _libraryManager.GetItemById(i))
                 .OfType<Video>()
+                .OrderBy(i => i.Id)
                 .ToList();
 
             if (items.Count < 2)
@@ -138,17 +140,11 @@ namespace MediaBrowser.Api
                 .ToList();
 
             var primaryVersion = videosWithVersions.FirstOrDefault();
-
             if (primaryVersion == null)
             {
                 primaryVersion = items.OrderBy(i =>
                     {
-                        if (i.Video3DFormat.HasValue)
-                        {
-                            return 1;
-                        }
-
-                        if (i.VideoType != Model.Entities.VideoType.VideoFile)
+                        if (i.Video3DFormat.HasValue || i.VideoType != Model.Entities.VideoType.VideoFile)
                         {
                             return 1;
                         }
@@ -157,10 +153,7 @@ namespace MediaBrowser.Api
                     })
                     .ThenByDescending(i =>
                     {
-                        var stream = i.GetDefaultVideoStream();
-
-                        return stream == null || stream.Width == null ? 0 : stream.Width.Value;
-
+                        return i.GetDefaultVideoStream()?.Width ?? 0;
                     }).First();
             }
 
@@ -168,7 +161,7 @@ namespace MediaBrowser.Api
 
             foreach (var item in items.Where(i => i.Id != primaryVersion.Id))
             {
-                item.SetPrimaryVersionId(primaryVersion.Id.ToString("N"));
+                item.SetPrimaryVersionId(primaryVersion.Id.ToString("N", CultureInfo.InvariantCulture));
 
                 item.UpdateToRepository(ItemUpdateType.MetadataEdit, CancellationToken.None);
 

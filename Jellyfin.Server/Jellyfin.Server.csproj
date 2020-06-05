@@ -1,19 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!-- ProjectGuid is only included as a requirement for SonarQube analysis -->
   <PropertyGroup>
-    <AssemblyName>jellyfin</AssemblyName>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>netcoreapp2.1</TargetFramework>
-    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <ProjectGuid>{07E39F42-A2C6-4B32-AF8C-725F957A73FF}</ProjectGuid>
   </PropertyGroup>
 
   <PropertyGroup>
-    <!-- We need C# 7.1 for async main-->
-    <LangVersion>latest</LangVersion>
-    <!-- Disable documentation warnings (for now) -->
-    <NoWarn>SA1600;SA1601;SA1629;CS1591</NoWarn>
+    <AssemblyName>jellyfin</AssemblyName>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>netcoreapp3.1</TargetFramework>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <ItemGroup>
@@ -24,11 +23,16 @@
     <EmbeddedResource Include="Resources/Configuration/*" />
   </ItemGroup>
 
-  <!-- Code analysers-->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- Code Analyzers-->
   <ItemGroup Condition=" '$(Configuration)' == 'Debug' ">
-    <PackageReference Include="Microsoft.CodeAnalysis.FxCopAnalyzers" Version="2.9.3" />
-    <PackageReference Include="StyleCop.Analyzers" Version="1.1.118" />
-    <PackageReference Include="SerilogAnalyzer" Version="0.15.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.FxCopAnalyzers" Version="2.9.8" PrivateAssets="All" />
+    <PackageReference Include="SerilogAnalyzer" Version="0.15.0" PrivateAssets="All" />
+    <PackageReference Include="StyleCop.Analyzers" Version="1.1.118" PrivateAssets="All" />
+    <PackageReference Include="SmartAnalyzers.MultithreadingAnalyzer" Version="1.1.31" PrivateAssets="All" />
   </ItemGroup>
 
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
@@ -36,24 +40,27 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="CommandLineParser" Version="2.5.0" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="2.2.4" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="2.2.0" />
-    <PackageReference Include="Serilog.AspNetCore" Version="2.1.1" />
+    <PackageReference Include="CommandLineParser" Version="2.7.82" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="3.1.4" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="3.1.4" />
+    <PackageReference Include="prometheus-net" Version="3.5.0" />
+    <PackageReference Include="prometheus-net.AspNetCore" Version="3.5.0" />
+    <PackageReference Include="Serilog.AspNetCore" Version="3.2.0" />
+    <PackageReference Include="Serilog.Enrichers.Thread" Version="3.1.0" />
     <PackageReference Include="Serilog.Settings.Configuration" Version="3.1.0" />
     <PackageReference Include="Serilog.Sinks.Async" Version="1.4.0" />
     <PackageReference Include="Serilog.Sinks.Console" Version="3.1.1" />
-    <PackageReference Include="Serilog.Sinks.File" Version="4.0.0" />
-    <PackageReference Include="SkiaSharp" Version="1.68.0" />
-    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="1.1.14" />
+    <PackageReference Include="Serilog.Sinks.File" Version="4.1.0" />
+    <PackageReference Include="Serilog.Sinks.Graylog" Version="2.1.2" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.0.2" />
     <PackageReference Include="SQLitePCLRaw.provider.sqlite3.netstandard11" Version="1.1.14" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Emby.Drawing\Emby.Drawing.csproj" />
-    <ProjectReference Include="..\Emby.IsoMounting\IsoMounter\IsoMounter.csproj" />
     <ProjectReference Include="..\Emby.Server.Implementations\Emby.Server.Implementations.csproj" />
     <ProjectReference Include="..\Jellyfin.Drawing.Skia\Jellyfin.Drawing.Skia.csproj" />
+    <ProjectReference Include="..\Jellyfin.Server.Implementations\Jellyfin.Server.Implementations.csproj" />
   </ItemGroup>
 
 </Project>

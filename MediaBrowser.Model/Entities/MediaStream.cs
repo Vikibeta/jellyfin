@@ -1,3 +1,6 @@
+#nullable disable
+#pragma warning disable CS1591
+
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -32,8 +35,22 @@ namespace MediaBrowser.Model.Entities
         /// <value>The language.</value>
         public string Language { get; set; }
 
+        /// <summary>
+        /// Gets or sets the color transfer.
+        /// </summary>
+        /// <value>The color transfer.</value>
         public string ColorTransfer { get; set; }
+
+        /// <summary>
+        /// Gets or sets the color primaries.
+        /// </summary>
+        /// <value>The color primaries.</value>
         public string ColorPrimaries { get; set; }
+
+        /// <summary>
+        /// Gets or sets the color space.
+        /// </summary>
+        /// <value>The color space.</value>
         public string ColorSpace { get; set; }
 
         /// <summary>
@@ -42,11 +59,28 @@ namespace MediaBrowser.Model.Entities
         /// <value>The comment.</value>
         public string Comment { get; set; }
 
+        /// <summary>
+        /// Gets or sets the time base.
+        /// </summary>
+        /// <value>The time base.</value>
         public string TimeBase { get; set; }
+
+        /// <summary>
+        /// Gets or sets the codec time base.
+        /// </summary>
+        /// <value>The codec time base.</value>
         public string CodecTimeBase { get; set; }
 
+        /// <summary>
+        /// Gets or sets the title.
+        /// </summary>
+        /// <value>The title.</value>
         public string Title { get; set; }
 
+        /// <summary>
+        /// Gets or sets the video range.
+        /// </summary>
+        /// <value>The video range.</value>
         public string VideoRange
         {
             get
@@ -58,7 +92,8 @@ namespace MediaBrowser.Model.Entities
 
                 var colorTransfer = ColorTransfer;
 
-                if (string.Equals(colorTransfer, "smpte2084", StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(colorTransfer, "smpte2084", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(colorTransfer, "arib-std-b67", StringComparison.OrdinalIgnoreCase))
                 {
                     return "HDR";
                 }
@@ -67,9 +102,11 @@ namespace MediaBrowser.Model.Entities
             }
         }
 
-        public string localizedUndefined  { get; set; }
-        public string localizedDefault  { get; set; }
-        public string localizedForced  { get; set; }
+        public string localizedUndefined { get; set; }
+
+        public string localizedDefault { get; set; }
+
+        public string localizedForced { get; set; }
 
         public string DisplayTitle
         {
@@ -88,11 +125,11 @@ namespace MediaBrowser.Model.Entities
                     {
                         attributes.Add(StringHelper.FirstToUpper(Language));
                     }
-                    if (!string.IsNullOrEmpty(Codec) && !StringHelper.EqualsIgnoreCase(Codec, "dca"))
+                    if (!string.IsNullOrEmpty(Codec) && !string.Equals(Codec, "dca", StringComparison.OrdinalIgnoreCase))
                     {
                         attributes.Add(AudioCodec.GetFriendlyName(Codec));
                     }
-                    else if (!string.IsNullOrEmpty(Profile) && !StringHelper.EqualsIgnoreCase(Profile, "lc"))
+                    else if (!string.IsNullOrEmpty(Profile) && !string.Equals(Profile, "lc", StringComparison.OrdinalIgnoreCase))
                     {
                         attributes.Add(Profile);
                     }
@@ -195,34 +232,34 @@ namespace MediaBrowser.Model.Entities
                 {
                     if (i.IsInterlaced)
                     {
-                        return "1440I";
+                        return "1440i";
                     }
-                    return "1440P";
+                    return "1440p";
                 }
                 if (width >= 1900 || height >= 1000)
                 {
                     if (i.IsInterlaced)
                     {
-                        return "1080I";
+                        return "1080i";
                     }
-                    return "1080P";
+                    return "1080p";
                 }
                 if (width >= 1260 || height >= 700)
                 {
                     if (i.IsInterlaced)
                     {
-                        return "720I";
+                        return "720i";
                     }
-                    return "720P";
+                    return "720p";
                 }
                 if (width >= 700 || height >= 440)
                 {
 
                     if (i.IsInterlaced)
                     {
-                        return "480I";
+                        return "480i";
                     }
-                    return "480P";
+                    return "480p";
                 }
 
                 return "SD";
@@ -394,8 +431,8 @@ namespace MediaBrowser.Model.Entities
             return codec.IndexOf("pgs", StringComparison.OrdinalIgnoreCase) == -1 &&
                    codec.IndexOf("dvd", StringComparison.OrdinalIgnoreCase) == -1 &&
                    codec.IndexOf("dvbsub", StringComparison.OrdinalIgnoreCase) == -1 &&
-                   !StringHelper.EqualsIgnoreCase(codec, "sub") &&
-                   !StringHelper.EqualsIgnoreCase(codec, "dvb_subtitle");
+                   !string.Equals(codec, "sub", StringComparison.OrdinalIgnoreCase) &&
+                   !string.Equals(codec, "dvb_subtitle", StringComparison.OrdinalIgnoreCase);
         }
 
         public bool SupportsSubtitleConversionTo(string toCodec)
@@ -408,21 +445,21 @@ namespace MediaBrowser.Model.Entities
             var fromCodec = Codec;
 
             // Can't convert from this
-            if (StringHelper.EqualsIgnoreCase(fromCodec, "ass"))
+            if (string.Equals(fromCodec, "ass", StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
-            if (StringHelper.EqualsIgnoreCase(fromCodec, "ssa"))
+            if (string.Equals(fromCodec, "ssa", StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
 
             // Can't convert to this
-            if (StringHelper.EqualsIgnoreCase(toCodec, "ass"))
+            if (string.Equals(toCodec, "ass", StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
-            if (StringHelper.EqualsIgnoreCase(toCodec, "ssa"))
+            if (string.Equals(toCodec, "ssa", StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }

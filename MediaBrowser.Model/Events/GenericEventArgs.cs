@@ -3,7 +3,7 @@ using System;
 namespace MediaBrowser.Model.Events
 {
     /// <summary>
-    /// Provides a generic EventArgs subclass that can hold any kind of object
+    /// Provides a generic EventArgs subclass that can hold any kind of object.
     /// </summary>
     /// <typeparam name="T"></typeparam>
     public class GenericEventArgs<T> : EventArgs
@@ -21,13 +21,6 @@ namespace MediaBrowser.Model.Events
         public GenericEventArgs(T arg)
         {
             Argument = arg;
-        }
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="GenericEventArgs{T}"/> class.
-        /// </summary>
-        public GenericEventArgs()
-        {
         }
     }
 }

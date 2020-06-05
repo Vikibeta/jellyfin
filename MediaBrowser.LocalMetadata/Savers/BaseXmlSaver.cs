@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -93,7 +92,7 @@ namespace MediaBrowser.LocalMetadata.Savers
             // On Windows, savint the file will fail if the file is hidden or readonly
             FileSystem.SetAttributes(path, false, false);
 
-            using (var filestream = FileSystem.GetFileStream(path, FileOpenMode.Create, FileAccessMode.Write, FileShareMode.Read))
+            using (var filestream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read))
             {
                 stream.CopyTo(filestream);
             }
@@ -158,8 +157,6 @@ namespace MediaBrowser.LocalMetadata.Savers
         /// <returns>Task.</returns>
         public static void AddCommonNodes(BaseItem item, XmlWriter writer, ILibraryManager libraryManager, IUserManager userManager, IUserDataManager userDataRepo, IFileSystem fileSystem, IServerConfigurationManager config)
         {
-            var writtenProviderIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
             if (!string.IsNullOrEmpty(item.OfficialRating))
             {
                 writer.WriteElementString("ContentRating", item.OfficialRating);
@@ -228,7 +225,7 @@ namespace MediaBrowser.LocalMetadata.Savers
                 }
             }
 
-            if (item.RemoteTrailers.Length > 0)
+            if (item.RemoteTrailers.Count > 0)
             {
                 writer.WriteStartElement("Trailers");
 

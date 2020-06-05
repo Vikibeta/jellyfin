@@ -1,3 +1,5 @@
+#pragma warning disable CS1591
+
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -5,12 +7,10 @@ using System.IO;
 using System.IO.Compression;
 using System.Net;
 using System.Runtime.Serialization;
-using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 using System.Xml;
 using Emby.Server.Implementations.Services;
-using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Serialization;
@@ -24,12 +24,18 @@ using MimeTypes = MediaBrowser.Model.Net.MimeTypes;
 namespace Emby.Server.Implementations.HttpServer
 {
     /// <summary>
-    /// Class HttpResultFactory
+    /// Class HttpResultFactory.
     /// </summary>
     public class HttpResultFactory : IHttpResultFactory
     {
+        // Last-Modified and If-Modified-Since must follow strict date format,
+        // see https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/If-Modified-Since
+        private const string HttpDateFormat = "ddd, dd MMM yyyy HH:mm:ss \"GMT\"";
+        // We specifically use en-US culture because both day of week and month names require it
+        private static readonly CultureInfo _enUSculture = new CultureInfo("en-US", false);
+
         /// <summary>
-        /// The _logger
+        /// The logger.
         /// </summary>
         private readonly ILogger _logger;
         private readonly IFileSystem _fileSystem;
@@ -50,6 +56,7 @@ namespace Emby.Server.Implementations.HttpServer
         /// <summary>
         /// Gets the result.
         /// </summary>
+        /// <param name="requestContext">The request context.</param>
         /// <param name="content">The content.</param>
         /// <param name="contentType">Type of the content.</param>
         /// <param name="responseHeaders">The response headers.</param>
@@ -249,16 +256,20 @@ namespace Emby.Server.Implementations.HttpServer
         {
             var acceptEncoding = request.Headers[HeaderNames.AcceptEncoding].ToString();
 
-            if (string.IsNullOrEmpty(acceptEncoding))
+            if (!string.IsNullOrEmpty(acceptEncoding))
             {
-                //if (_brotliCompressor != null && acceptEncoding.IndexOf("br", StringComparison.OrdinalIgnoreCase) != -1)
+                // if (_brotliCompressor != null && acceptEncoding.IndexOf("br", StringComparison.OrdinalIgnoreCase) != -1)
                 //    return "br";
 
-                if (acceptEncoding.IndexOf("deflate", StringComparison.OrdinalIgnoreCase) != -1)
+                if (acceptEncoding.Contains("deflate", StringComparison.OrdinalIgnoreCase))
+                {
                     return "deflate";
+                }
 
-                if (acceptEncoding.IndexOf("gzip", StringComparison.OrdinalIgnoreCase) != -1)
+                if (acceptEncoding.Contains("gzip", StringComparison.OrdinalIgnoreCase))
+                {
                     return "gzip";
+                }
             }
 
             return null;
@@ -420,7 +431,11 @@ namespace Emby.Server.Implementations.HttpServer
 
             if (!noCache)
             {
-                DateTime.TryParse(requestContext.Headers[HeaderNames.IfModifiedSince], out var ifModifiedSinceHeader);
+                if (!DateTime.TryParseExact(requestContext.Headers[HeaderNames.IfModifiedSince], HttpDateFormat, _enUSculture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var ifModifiedSinceHeader))
+                {
+                    _logger.LogDebug("Failed to parse If-Modified-Since header date: {0}", requestContext.Headers[HeaderNames.IfModifiedSince]);
+                    return null;
+                }
 
                 if (IsNotModified(ifModifiedSinceHeader, options.CacheDuration, options.DateLastModified))
                 {
@@ -439,7 +454,7 @@ namespace Emby.Server.Implementations.HttpServer
 
         public Task<object> GetStaticFileResult(IRequest requestContext,
             string path,
-            FileShareMode fileShare = FileShareMode.Read)
+            FileShare fileShare = FileShare.Read)
         {
             if (string.IsNullOrEmpty(path))
             {
@@ -460,10 +475,10 @@ namespace Emby.Server.Implementations.HttpServer
 
             if (string.IsNullOrEmpty(path))
             {
-                throw new ArgumentNullException(nameof(path));
+                throw new ArgumentException("Path can't be empty.", nameof(options));
             }
 
-            if (fileShare != FileShareMode.Read && fileShare != FileShareMode.ReadWrite)
+            if (fileShare != FileShare.Read && fileShare != FileShare.ReadWrite)
             {
                 throw new ArgumentException("FileShare must be either Read or ReadWrite");
             }
@@ -491,9 +506,9 @@ namespace Emby.Server.Implementations.HttpServer
         /// <param name="path">The path.</param>
         /// <param name="fileShare">The file share.</param>
         /// <returns>Stream.</returns>
-        private Stream GetFileStream(string path, FileShareMode fileShare)
+        private Stream GetFileStream(string path, FileShare fileShare)
         {
-            return _fileSystem.GetFileStream(path, FileOpenMode.Open, FileAccessMode.Read, fileShare);
+            return new FileStream(path, FileMode.Open, FileAccess.Read, fileShare);
         }
 
         public Task<object> GetStaticResult(IRequest requestContext,
@@ -629,7 +644,7 @@ namespace Emby.Server.Implementations.HttpServer
 
             if (lastModifiedDate.HasValue)
             {
-                responseHeaders[HeaderNames.LastModified] = lastModifiedDate.Value.ToString(CultureInfo.InvariantCulture);
+                responseHeaders[HeaderNames.LastModified] = lastModifiedDate.Value.ToUniversalTime().ToString(HttpDateFormat, _enUSculture);
             }
         }
 

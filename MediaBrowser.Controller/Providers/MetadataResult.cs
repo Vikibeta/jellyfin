@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using MediaBrowser.Controller.Entities;
 
 namespace MediaBrowser.Controller.Providers
@@ -7,6 +8,7 @@ namespace MediaBrowser.Controller.Providers
     public class MetadataResult<T>
     {
         public List<LocalImageInfo> Images { get; set; }
+
         public List<UserItemData> UserDataList { get; set; }
 
         public MetadataResult()
@@ -18,10 +20,15 @@ namespace MediaBrowser.Controller.Providers
         public List<PersonInfo> People { get; set; }
 
         public bool HasMetadata { get; set; }
+
         public T Item { get; set; }
+
         public string ResultLanguage { get; set; }
+
         public string Provider { get; set; }
+
         public bool QueriedById { get; set; }
+
         public void AddPerson(PersonInfo p)
         {
             if (People == null)
@@ -55,7 +62,7 @@ namespace MediaBrowser.Controller.Providers
 
             foreach (var i in UserDataList)
             {
-                if (string.Equals(userId, i.UserId.ToString("N"), StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(userId, i.UserId.ToString("N", CultureInfo.InvariantCulture), StringComparison.OrdinalIgnoreCase))
                 {
                     userData = i;
                 }

@@ -15,6 +15,7 @@ using MediaBrowser.Model.IO;
 using MediaBrowser.Model.MediaInfo;
 using MediaBrowser.Model.Serialization;
 using MediaBrowser.Model.Services;
+using Microsoft.Extensions.Logging;
 using Microsoft.Net.Http.Headers;
 
 namespace MediaBrowser.Api.Playback.Progressive
@@ -27,31 +28,36 @@ namespace MediaBrowser.Api.Playback.Progressive
         protected IHttpClient HttpClient { get; private set; }
 
         public BaseProgressiveStreamingService(
+            ILogger<BaseProgressiveStreamingService> logger,
+            IServerConfigurationManager serverConfigurationManager,
+            IHttpResultFactory httpResultFactory,
             IHttpClient httpClient,
-            IServerConfigurationManager serverConfig,
             IUserManager userManager,
             ILibraryManager libraryManager,
             IIsoManager isoManager,
             IMediaEncoder mediaEncoder,
             IFileSystem fileSystem,
             IDlnaManager dlnaManager,
-            ISubtitleEncoder subtitleEncoder,
             IDeviceManager deviceManager,
             IMediaSourceManager mediaSourceManager,
             IJsonSerializer jsonSerializer,
-            IAuthorizationContext authorizationContext)
-            : base(serverConfig,
+            IAuthorizationContext authorizationContext,
+            EncodingHelper encodingHelper)
+            : base(
+                logger,
+                serverConfigurationManager,
+                httpResultFactory,
                 userManager,
                 libraryManager,
                 isoManager,
                 mediaEncoder,
                 fileSystem,
                 dlnaManager,
-                subtitleEncoder,
                 deviceManager,
                 mediaSourceManager,
                 jsonSerializer,
-                authorizationContext)
+                authorizationContext,
+                encodingHelper)
         {
             HttpClient = httpClient;
         }
@@ -77,7 +83,8 @@ namespace MediaBrowser.Api.Playback.Progressive
             {
                 var videoCodec = state.VideoRequest.VideoCodec;
 
-                if (string.Equals(videoCodec, "h264", StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(videoCodec, "h264", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(videoCodec, "h265", StringComparison.OrdinalIgnoreCase))
                 {
                     return ".ts";
                 }
@@ -241,7 +248,7 @@ namespace MediaBrowser.Api.Playback.Progressive
             //            ContentType = contentType,
             //            IsHeadRequest = isHeadRequest,
             //            Path = outputPath,
-            //            FileShare = FileShareMode.ReadWrite,
+            //            FileShare = FileShare.ReadWrite,
             //            OnComplete = () =>
             //            {
             //                if (transcodingJob != null)
@@ -279,17 +286,23 @@ namespace MediaBrowser.Api.Playback.Progressive
         /// <param name="isHeadRequest">if set to <c>true</c> [is head request].</param>
         /// <param name="cancellationTokenSource">The cancellation token source.</param>
         /// <returns>Task{System.Object}.</returns>
-        private async Task<object> GetStaticRemoteStreamResult(StreamState state, Dictionary<string, string> responseHeaders, bool isHeadRequest, CancellationTokenSource cancellationTokenSource)
+        private async Task<object> GetStaticRemoteStreamResult(
+            StreamState state,
+            Dictionary<string, string> responseHeaders,
+            bool isHeadRequest,
+            CancellationTokenSource cancellationTokenSource)
         {
-            state.RemoteHttpHeaders.TryGetValue(HeaderNames.UserAgent, out var useragent);
-
             var options = new HttpRequestOptions
             {
                 Url = state.MediaPath,
-                UserAgent = useragent,
                 BufferContent = false,
                 CancellationToken = cancellationTokenSource.Token
             };
+
+            if (state.RemoteHttpHeaders.TryGetValue(HeaderNames.UserAgent, out var useragent))
+            {
+                options.UserAgent = useragent;
+            }
 
             var response = await HttpClient.GetResponse(options).ConfigureAwait(false);
 
@@ -305,7 +318,7 @@ namespace MediaBrowser.Api.Playback.Progressive
             {
                 using (response)
                 {
-                    return ResultFactory.GetResult(null, new byte[] { }, response.ContentType, responseHeaders);
+                    return ResultFactory.GetResult(null, Array.Empty<byte>(), response.ContentType, responseHeaders);
                 }
             }
 

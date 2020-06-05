@@ -1,3 +1,5 @@
+#pragma warning disable CS1591
+
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -5,6 +7,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Common;
@@ -12,12 +15,10 @@ using MediaBrowser.Common.Net;
 using MediaBrowser.Controller.LiveTv;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
-using MediaBrowser.Model.Extensions;
 using MediaBrowser.Model.LiveTv;
 using MediaBrowser.Model.Net;
 using MediaBrowser.Model.Serialization;
 using Microsoft.Extensions.Logging;
-using Microsoft.Net.Http.Headers;
 
 namespace Emby.Server.Implementations.LiveTv.Listings
 {
@@ -31,7 +32,11 @@ namespace Emby.Server.Implementations.LiveTv.Listings
 
         private const string ApiUrl = "https://json.schedulesdirect.org/20141201";
 
-        public SchedulesDirect(ILogger logger, IJsonSerializer jsonSerializer, IHttpClient httpClient, IApplicationHost appHost)
+        public SchedulesDirect(
+            ILogger<SchedulesDirect> logger,
+            IJsonSerializer jsonSerializer,
+            IHttpClient httpClient,
+            IApplicationHost appHost)
         {
             _logger = logger;
             _jsonSerializer = jsonSerializer;
@@ -40,6 +45,12 @@ namespace Emby.Server.Implementations.LiveTv.Listings
         }
 
         private string UserAgent => _appHost.ApplicationUserAgent;
+
+        /// <inheritdoc />
+        public string Name => "Schedules Direct";
+
+        /// <inheritdoc />
+        public string Type => nameof(SchedulesDirect);
 
         private static List<string> GetScheduleRequestDates(DateTime startDateUtc, DateTime endDateUtc)
         {
@@ -103,7 +114,6 @@ namespace Emby.Server.Implementations.LiveTv.Listings
             httpOptions.RequestHeaders["token"] = token;
 
             using (var response = await Post(httpOptions, true, info).ConfigureAwait(false))
-            using (var reader = new StreamReader(response.Content))
             {
                 var dailySchedules = await _jsonSerializer.DeserializeFromStreamAsync<List<ScheduleDirect.Day>>(response.Content).ConfigureAwait(false);
                 _logger.LogDebug("Found {ScheduleCount} programs on {ChannelID} ScheduleDirect", dailySchedules.Count, channelId);
@@ -122,7 +132,6 @@ namespace Emby.Server.Implementations.LiveTv.Listings
                 httpOptions.RequestContent = "[\"" + string.Join("\", \"", programsID) + "\"]";
 
                 using (var innerResponse = await Post(httpOptions, true, info).ConfigureAwait(false))
-                using (var innerReader = new StreamReader(innerResponse.Content))
                 {
                     var programDetails = await _jsonSerializer.DeserializeFromStreamAsync<List<ScheduleDirect.ProgramDetails>>(innerResponse.Content).ConfigureAwait(false);
                     var programDict = programDetails.ToDictionary(p => p.programID, y => y);
@@ -152,14 +161,14 @@ namespace Emby.Server.Implementations.LiveTv.Listings
                                 var imagesWithText = allImages.Where(i => string.Equals(i.text, "yes", StringComparison.OrdinalIgnoreCase));
                                 var imagesWithoutText = allImages.Where(i => string.Equals(i.text, "no", StringComparison.OrdinalIgnoreCase));
 
-                                const double desiredAspect = 0.666666667;
+                                const double DesiredAspect = 2.0 / 3;
 
-                                programEntry.primaryImage = GetProgramImage(ApiUrl, imagesWithText, true, desiredAspect) ??
-                                    GetProgramImage(ApiUrl, allImages, true, desiredAspect);
+                                programEntry.primaryImage = GetProgramImage(ApiUrl, imagesWithText, true, DesiredAspect) ??
+                                    GetProgramImage(ApiUrl, allImages, true, DesiredAspect);
 
-                                const double wideAspect = 1.77777778;
+                                const double WideAspect = 16.0 / 9;
 
-                                programEntry.thumbImage = GetProgramImage(ApiUrl, imagesWithText, true, wideAspect);
+                                programEntry.thumbImage = GetProgramImage(ApiUrl, imagesWithText, true, WideAspect);
 
                                 // Don't supply the same image twice
                                 if (string.Equals(programEntry.primaryImage, programEntry.thumbImage, StringComparison.Ordinal))
@@ -167,7 +176,7 @@ namespace Emby.Server.Implementations.LiveTv.Listings
                                     programEntry.thumbImage = null;
                                 }
 
-                                programEntry.backdropImage = GetProgramImage(ApiUrl, imagesWithoutText, true, wideAspect);
+                                programEntry.backdropImage = GetProgramImage(ApiUrl, imagesWithoutText, true, WideAspect);
 
                                 //programEntry.bannerImage = GetProgramImage(ApiUrl, data, "Banner", false) ??
                                 //    GetProgramImage(ApiUrl, data, "Banner-L1", false) ??
@@ -178,6 +187,7 @@ namespace Emby.Server.Implementations.LiveTv.Listings
 
                         programsInfo.Add(GetProgram(channelId, schedule, programDict[schedule.programID]));
                     }
+
                     return programsInfo;
                 }
             }
@@ -185,12 +195,10 @@ namespace Emby.Server.Implementations.LiveTv.Listings
 
         private static int GetSizeOrder(ScheduleDirect.ImageData image)
         {
-            if (!string.IsNullOrWhiteSpace(image.height))
+            if (!string.IsNullOrWhiteSpace(image.height)
+                && int.TryParse(image.height, out int value))
             {
-                if (int.TryParse(image.height, out int value))
-                {
-                    return value;
-                }
+                return value;
             }
 
             return 0;
@@ -499,7 +507,7 @@ namespace Emby.Server.Implementations.LiveTv.Listings
 
         public async Task<List<NameIdPair>> GetHeadends(ListingsProviderInfo info, string country, string location, CancellationToken cancellationToken)
         {
-            var token = await GetToken(info, cancellationToken);
+            var token = await GetToken(info, cancellationToken).ConfigureAwait(false);
 
             var lineups = new List<NameIdPair>();
 
@@ -627,15 +635,7 @@ namespace Emby.Server.Implementations.LiveTv.Listings
             ListingsProviderInfo providerInfo)
         {
             // Schedules direct requires that the client support compression and will return a 400 response without it
-            options.EnableHttpCompression = true;
-
-            // On windows 7 under .net core, this header is not getting added
-#if NETSTANDARD2_0
-            if (Environment.OSVersion.Platform == PlatformID.Win32NT)
-            {
-                options.RequestHeaders[HeaderNames.AcceptEncoding] = "deflate";
-            }
-#endif
+            options.DecompressionMethod = CompressionMethods.Deflate;
 
             try
             {
@@ -665,19 +665,11 @@ namespace Emby.Server.Implementations.LiveTv.Listings
             ListingsProviderInfo providerInfo)
         {
             // Schedules direct requires that the client support compression and will return a 400 response without it
-            options.EnableHttpCompression = true;
-
-            // On windows 7 under .net core, this header is not getting added
-#if NETSTANDARD2_0
-            if (Environment.OSVersion.Platform == PlatformID.Win32NT)
-            {
-                options.RequestHeaders[HeaderNames.AcceptEncoding] = "deflate";
-            }
-#endif
+            options.DecompressionMethod = CompressionMethods.Deflate;
 
             try
             {
-                return await _httpClient.SendAsync(options, "GET").ConfigureAwait(false);
+                return await _httpClient.SendAsync(options, HttpMethod.Get).ConfigureAwait(false);
             }
             catch (HttpException ex)
             {
@@ -727,7 +719,7 @@ namespace Emby.Server.Implementations.LiveTv.Listings
 
         private async Task AddLineupToAccount(ListingsProviderInfo info, CancellationToken cancellationToken)
         {
-            var token = await GetToken(info, cancellationToken);
+            var token = await GetToken(info, cancellationToken).ConfigureAwait(false);
 
             if (string.IsNullOrEmpty(token))
             {
@@ -752,15 +744,10 @@ namespace Emby.Server.Implementations.LiveTv.Listings
 
             httpOptions.RequestHeaders["token"] = token;
 
-            using (var response = await _httpClient.SendAsync(httpOptions, "PUT"))
+            using (await _httpClient.SendAsync(httpOptions, HttpMethod.Put).ConfigureAwait(false))
             {
             }
         }
-
-        public string Name => "Schedules Direct";
-
-        public static string TypeName = "SchedulesDirect";
-        public string Type => TypeName;
 
         private async Task<bool> HasLineup(ListingsProviderInfo info, CancellationToken cancellationToken)
         {
@@ -769,7 +756,7 @@ namespace Emby.Server.Implementations.LiveTv.Listings
                 throw new ArgumentException("Listings Id required");
             }
 
-            var token = await GetToken(info, cancellationToken);
+            var token = await GetToken(info, cancellationToken).ConfigureAwait(false);
 
             if (string.IsNullOrEmpty(token))
             {
@@ -852,7 +839,7 @@ namespace Emby.Server.Implementations.LiveTv.Listings
                 throw new Exception("ListingsId required");
             }
 
-            var token = await GetToken(info, cancellationToken);
+            var token = await GetToken(info, cancellationToken).ConfigureAwait(false);
 
             if (string.IsNullOrEmpty(token))
             {

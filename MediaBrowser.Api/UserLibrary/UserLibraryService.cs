@@ -2,6 +2,8 @@ using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using MediaBrowser.Common.Extensions;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Audio;
@@ -13,6 +15,7 @@ using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Querying;
 using MediaBrowser.Model.Services;
+using Microsoft.Extensions.Logging;
 
 namespace MediaBrowser.Api.UserLibrary
 {
@@ -269,7 +272,18 @@ namespace MediaBrowser.Api.UserLibrary
         private readonly IFileSystem _fileSystem;
         private readonly IAuthorizationContext _authContext;
 
-        public UserLibraryService(IUserManager userManager, ILibraryManager libraryManager, IUserDataManager userDataRepository, IDtoService dtoService, IUserViewManager userViewManager, IFileSystem fileSystem, IAuthorizationContext authContext)
+        public UserLibraryService(
+            ILogger<UserLibraryService> logger,
+            IServerConfigurationManager serverConfigurationManager,
+            IHttpResultFactory httpResultFactory,
+            IUserManager userManager,
+            ILibraryManager libraryManager,
+            IUserDataManager userDataRepository,
+            IDtoService dtoService,
+            IUserViewManager userViewManager,
+            IFileSystem fileSystem,
+            IAuthorizationContext authContext)
+            : base(logger, serverConfigurationManager, httpResultFactory)
         {
             _userManager = userManager;
             _libraryManager = libraryManager;
@@ -347,7 +361,8 @@ namespace MediaBrowser.Api.UserLibrary
 
             var dtoOptions = GetDtoOptions(_authContext, request);
 
-            var dtos = item.GetDisplayExtras()
+            var dtos = item
+                .GetExtras(BaseItem.DisplayExtraTypes)
                 .Select(i => _dtoService.GetBaseItemDto(i, dtoOptions, user, item));
 
             return dtos.ToArray();
@@ -366,11 +381,21 @@ namespace MediaBrowser.Api.UserLibrary
 
             var dtoOptions = GetDtoOptions(_authContext, request);
 
-            var dtos = item.GetExtras(new[] { ExtraType.Trailer })
+            var dtosExtras = item.GetExtras(new[] { ExtraType.Trailer })
                 .Select(i => _dtoService.GetBaseItemDto(i, dtoOptions, user, item))
                 .ToArray();
 
-            return ToOptimizedResult(dtos);
+            if (item is IHasTrailers hasTrailers)
+            {
+                var trailers = hasTrailers.GetTrailers();
+                var dtosTrailers = _dtoService.GetBaseItemDtos(trailers, dtoOptions, user, item);
+                var allTrailers = new BaseItemDto[dtosExtras.Length + dtosTrailers.Count];
+                dtosExtras.CopyTo(allTrailers, 0);
+                dtosTrailers.CopyTo(allTrailers, dtosExtras.Length);
+                return ToOptimizedResult(allTrailers);
+            }
+
+            return ToOptimizedResult(dtosExtras);
         }
 
         /// <summary>
@@ -402,7 +427,7 @@ namespace MediaBrowser.Api.UserLibrary
 
                 if (!hasMetdata)
                 {
-                    var options = new MetadataRefreshOptions(new DirectoryService(Logger, _fileSystem))
+                    var options = new MetadataRefreshOptions(new DirectoryService(_fileSystem))
                     {
                         MetadataRefreshMode = MetadataRefreshMode.FullRefresh,
                         ImageRefreshMode = MetadataRefreshMode.FullRefresh,

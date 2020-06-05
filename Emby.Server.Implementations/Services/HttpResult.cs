@@ -1,3 +1,5 @@
+#pragma warning disable CS1591
+
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
@@ -10,8 +12,6 @@ namespace Emby.Server.Implementations.Services
     public class HttpResult
         : IHttpResult, IAsyncStreamWriter
     {
-        public object Response { get; set; }
-
         public HttpResult(object response, string contentType, HttpStatusCode statusCode)
         {
             this.Headers = new Dictionary<string, string>();
@@ -20,6 +20,8 @@ namespace Emby.Server.Implementations.Services
             this.ContentType = contentType;
             this.StatusCode = statusCode;
         }
+
+        public object Response { get; set; }
 
         public string ContentType { get; set; }
 
@@ -37,7 +39,7 @@ namespace Emby.Server.Implementations.Services
 
         public async Task WriteToAsync(Stream responseStream, CancellationToken cancellationToken)
         {
-            var response = RequestContext == null ? null : RequestContext.Response;
+            var response = RequestContext?.Response;
 
             if (this.Response is byte[] bytesResponse)
             {
@@ -45,13 +47,14 @@ namespace Emby.Server.Implementations.Services
 
                 if (response != null)
                 {
-                    response.OriginalResponse.ContentLength = contentLength;
+                    response.ContentLength = contentLength;
                 }
 
                 if (contentLength > 0)
                 {
                     await responseStream.WriteAsync(bytesResponse, 0, contentLength, cancellationToken).ConfigureAwait(false);
                 }
+
                 return;
             }
 

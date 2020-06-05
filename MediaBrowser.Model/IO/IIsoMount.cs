@@ -3,12 +3,12 @@ using System;
 namespace MediaBrowser.Model.IO
 {
     /// <summary>
-    /// Interface IIsoMount
+    /// Interface IIsoMount.
     /// </summary>
     public interface IIsoMount : IDisposable
     {
         /// <summary>
-        /// Gets or sets the iso path.
+        /// Gets the iso path.
         /// </summary>
         /// <value>The iso path.</value>
         string IsoPath { get; }

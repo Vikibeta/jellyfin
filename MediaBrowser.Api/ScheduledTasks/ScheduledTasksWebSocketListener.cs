@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Events;
@@ -29,7 +28,7 @@ namespace MediaBrowser.Api.ScheduledTasks
         /// <summary>
         /// Initializes a new instance of the <see cref="ScheduledTasksWebSocketListener" /> class.
         /// </summary>
-        public ScheduledTasksWebSocketListener(ILogger logger, ITaskManager taskManager)
+        public ScheduledTasksWebSocketListener(ILogger<ScheduledTasksWebSocketListener> logger, ITaskManager taskManager)
             : base(logger)
         {
             TaskManager = taskManager;

@@ -11,18 +11,40 @@ using Microsoft.Extensions.Logging;
 
 namespace MediaBrowser.XbmcMetadata.Savers
 {
+    /// <summary>
+    /// Nfo saver for seasons.
+    /// </summary>
     public class SeasonNfoSaver : BaseNfoSaver
     {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="SeasonNfoSaver"/> class.
+        /// </summary>
+        /// <param name="fileSystem">The file system.</param>
+        /// <param name="configurationManager">the server configuration manager.</param>
+        /// <param name="libraryManager">The library manager.</param>
+        /// <param name="userManager">The user manager.</param>
+        /// <param name="userDataManager">The user data manager.</param>
+        /// <param name="logger">The logger.</param>
+        public SeasonNfoSaver(
+            IFileSystem fileSystem,
+            IServerConfigurationManager configurationManager,
+            ILibraryManager libraryManager,
+            IUserManager userManager,
+            IUserDataManager userDataManager,
+            ILogger<SeasonNfoSaver> logger)
+            : base(fileSystem, configurationManager, libraryManager, userManager, userDataManager, logger)
+        {
+        }
+
+        /// <inheritdoc />
         protected override string GetLocalSavePath(BaseItem item)
-        {
-            return Path.Combine(item.Path, "season.nfo");
-        }
+            => Path.Combine(item.Path, "season.nfo");
 
+        /// <inheritdoc />
         protected override string GetRootElementName(BaseItem item)
-        {
-            return "season";
-        }
+            => "season";
 
+        /// <inheritdoc />
         public override bool IsEnabledFor(BaseItem item, ItemUpdateType updateType)
         {
             if (!item.SupportsLocalMetadata)
@@ -38,6 +60,7 @@ namespace MediaBrowser.XbmcMetadata.Savers
             return updateType >= MinimumUpdateType || (updateType >= ItemUpdateType.MetadataImport && File.Exists(GetSavePath(item)));
         }
 
+        /// <inheritdoc />
         protected override void WriteCustomElements(BaseItem item, XmlWriter writer)
         {
             var season = (Season)item;
@@ -48,6 +71,7 @@ namespace MediaBrowser.XbmcMetadata.Savers
             }
         }
 
+        /// <inheritdoc />
         protected override List<string> GetTagsUsed(BaseItem item)
         {
             var list = base.GetTagsUsed(item);
@@ -57,17 +81,6 @@ namespace MediaBrowser.XbmcMetadata.Savers
             });
 
             return list;
-        }
-
-        public SeasonNfoSaver(
-            IFileSystem fileSystem,
-            IServerConfigurationManager configurationManager,
-            ILibraryManager libraryManager,
-            IUserManager userManager,
-            IUserDataManager userDataManager,
-            ILogger logger)
-            : base(fileSystem, configurationManager, libraryManager, userManager, userDataManager, logger)
-        {
         }
     }
 }

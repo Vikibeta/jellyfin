@@ -24,8 +24,7 @@ namespace MediaBrowser.Controller.Persistence
         /// Deletes the item.
         /// </summary>
         /// <param name="id">The identifier.</param>
-        /// <param name="cancellationToken">The cancellation token.</param>
-        void DeleteItem(Guid id, CancellationToken cancellationToken);
+        void DeleteItem(Guid id);
 
         /// <summary>
         /// Saves the items.
@@ -61,7 +60,7 @@ namespace MediaBrowser.Controller.Persistence
         /// <summary>
         /// Saves the chapters.
         /// </summary>
-        void SaveChapters(Guid id, List<ChapterInfo> chapters);
+        void SaveChapters(Guid id, IReadOnlyList<ChapterInfo> chapters);
 
         /// <summary>
         /// Gets the media streams.
@@ -77,6 +76,21 @@ namespace MediaBrowser.Controller.Persistence
         /// <param name="streams">The streams.</param>
         /// <param name="cancellationToken">The cancellation token.</param>
         void SaveMediaStreams(Guid id, List<MediaStream> streams, CancellationToken cancellationToken);
+
+        /// <summary>
+        /// Gets the media attachments.
+        /// </summary>
+        /// <param name="query">The query.</param>
+        /// <returns>IEnumerable{MediaAttachment}.</returns>
+        List<MediaAttachment> GetMediaAttachments(MediaAttachmentQuery query);
+
+        /// <summary>
+        /// Saves the media attachments.
+        /// </summary>
+        /// <param name="id">The identifier.</param>
+        /// <param name="attachments">The attachments.</param>
+        /// <param name="cancellationToken">The cancellation token.</param>
+        void SaveMediaAttachments(Guid id, IReadOnlyList<MediaAttachment> attachments, CancellationToken cancellationToken);
 
         /// <summary>
         /// Gets the item ids.
@@ -154,4 +168,3 @@ namespace MediaBrowser.Controller.Persistence
         List<string> GetAllArtistNames();
     }
 }
-

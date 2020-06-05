@@ -1,8 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using MediaBrowser.Controller.Entities;
-using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Drawing;
 
 namespace MediaBrowser.Controller.Drawing
@@ -33,9 +33,7 @@ namespace MediaBrowser.Controller.Drawing
 
         public int Quality { get; set; }
 
-        public IImageEnhancer[] Enhancers { get; set; }
-
-        public ImageFormat[] SupportedOutputFormats { get; set; }
+        public IReadOnlyCollection<ImageFormat> SupportedOutputFormats { get; set; }
 
         public bool AddPlayedIndicator { get; set; }
 

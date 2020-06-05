@@ -1,3 +1,5 @@
+#pragma warning disable CS1591
+
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -15,7 +17,7 @@ using Microsoft.Extensions.Logging;
 namespace Emby.Server.Implementations.Library
 {
     /// <summary>
-    /// Class UserDataManager
+    /// Class UserDataManager.
     /// </summary>
     public class UserDataManager : IUserDataManager
     {
@@ -26,25 +28,24 @@ namespace Emby.Server.Implementations.Library
 
         private readonly ILogger _logger;
         private readonly IServerConfigurationManager _config;
+        private readonly IUserManager _userManager;
+        private readonly IUserDataRepository _repository;
 
-        private Func<IUserManager> _userManager;
-
-        public UserDataManager(ILoggerFactory loggerFactory, IServerConfigurationManager config, Func<IUserManager> userManager)
+        public UserDataManager(
+            ILogger<UserDataManager> logger,
+            IServerConfigurationManager config,
+            IUserManager userManager,
+            IUserDataRepository repository)
         {
+            _logger = logger;
             _config = config;
-            _logger = loggerFactory.CreateLogger(GetType().Name);
             _userManager = userManager;
+            _repository = repository;
         }
-
-        /// <summary>
-        /// Gets or sets the repository.
-        /// </summary>
-        /// <value>The repository.</value>
-        public IUserDataRepository Repository { get; set; }
 
         public void SaveUserData(Guid userId, BaseItem item, UserItemData userData, UserDataSaveReason reason, CancellationToken cancellationToken)
         {
-            var user = _userManager().GetUserById(userId);
+            var user = _userManager.GetUserById(userId);
 
             SaveUserData(user, item, userData, reason, cancellationToken);
         }
@@ -55,6 +56,7 @@ namespace Emby.Server.Implementations.Library
             {
                 throw new ArgumentNullException(nameof(userData));
             }
+
             if (item == null)
             {
                 throw new ArgumentNullException(nameof(item));
@@ -68,7 +70,7 @@ namespace Emby.Server.Implementations.Library
 
             foreach (var key in keys)
             {
-                Repository.SaveUserData(userId, key, userData, cancellationToken);
+                _repository.SaveUserData(userId, key, userData, cancellationToken);
             }
 
             var cacheKey = GetCacheKey(userId, item.Id);
@@ -93,9 +95,9 @@ namespace Emby.Server.Implementations.Library
         /// <returns></returns>
         public void SaveAllUserData(Guid userId, UserItemData[] userData, CancellationToken cancellationToken)
         {
-            var user = _userManager().GetUserById(userId);
+            var user = _userManager.GetUserById(userId);
 
-            Repository.SaveAllUserData(user.InternalId, userData, cancellationToken);
+            _repository.SaveAllUserData(user.InternalId, userData, cancellationToken);
         }
 
         /// <summary>
@@ -105,14 +107,14 @@ namespace Emby.Server.Implementations.Library
         /// <returns></returns>
         public List<UserItemData> GetAllUserData(Guid userId)
         {
-            var user = _userManager().GetUserById(userId);
+            var user = _userManager.GetUserById(userId);
 
-            return Repository.GetAllUserData(user.InternalId);
+            return _repository.GetAllUserData(user.InternalId);
         }
 
         public UserItemData GetUserData(Guid userId, Guid itemId, List<string> keys)
         {
-            var user = _userManager().GetUserById(userId);
+            var user = _userManager.GetUserById(userId);
 
             return GetUserData(user, itemId, keys);
         }
@@ -128,7 +130,7 @@ namespace Emby.Server.Implementations.Library
 
         private UserItemData GetUserDataInternal(long internalUserId, List<string> keys)
         {
-            var userData = Repository.GetUserData(internalUserId, keys);
+            var userData = _repository.GetUserData(internalUserId, keys);
 
             if (userData != null)
             {
@@ -152,17 +154,12 @@ namespace Emby.Server.Implementations.Library
         /// <returns>System.String.</returns>
         private static string GetCacheKey(long internalUserId, Guid itemId)
         {
-            return internalUserId.ToString(CultureInfo.InvariantCulture) + "-" + itemId.ToString("N");
+            return internalUserId.ToString(CultureInfo.InvariantCulture) + "-" + itemId.ToString("N", CultureInfo.InvariantCulture);
         }
 
         public UserItemData GetUserData(User user, BaseItem item)
         {
             return GetUserData(user, item.Id, item.GetUserDataKeys());
-        }
-
-        public UserItemData GetUserData(string userId, BaseItem item)
-        {
-            return GetUserData(new Guid(userId), item);
         }
 
         public UserItemData GetUserData(Guid userId, BaseItem item)
@@ -228,24 +225,21 @@ namespace Emby.Server.Implementations.Library
             {
                 var pctIn = decimal.Divide(positionTicks, runtimeTicks) * 100;
 
-                // Don't track in very beginning
                 if (pctIn < _config.Configuration.MinResumePct)
                 {
+                    // ignore progress during the beginning
                     positionTicks = 0;
                 }
-
-                // If we're at the end, assume completed
                 else if (pctIn > _config.Configuration.MaxResumePct || positionTicks >= runtimeTicks)
                 {
+                    // mark as completed close to the end
                     positionTicks = 0;
                     data.Played = playedToCompletion = true;
                 }
-
                 else
                 {
                     // Enforce MinResumeDuration
                     var durationSeconds = TimeSpan.FromTicks(runtimeTicks).TotalSeconds;
-
                     if (durationSeconds < _config.Configuration.MinResumeDurationSeconds)
                     {
                         positionTicks = 0;
@@ -265,6 +259,7 @@ namespace Emby.Server.Implementations.Library
                 positionTicks = 0;
                 data.Played = false;
             }
+
             if (!item.SupportsPositionTicksResume)
             {
                 positionTicks = 0;

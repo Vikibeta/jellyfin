@@ -1,3 +1,5 @@
+#pragma warning disable CS1591
+
 using MediaBrowser.Model.Dlna;
 
 namespace Emby.Dlna.Profiles
@@ -9,7 +11,7 @@ namespace Emby.Dlna.Profiles
         {
             Name = "Dish Hopper-Joey";
 
-            ProtocolInfo = "http-get:*:video/mp2t:*,http-get:*:video/MP1S:*,http-get:*:video/mpeg2:*,http-get:*:video/mp4:*,http-get:*:video/x-matroska:*,http-get:*:audio/mpeg:*,http-get:*:audio/mpeg3:*,http-get:*:audio/mp3:*,http-get:*:audio/mp4:*,http-get:*:audio/mp4a-latm:*,http-get:*:image/jpeg:*";
+            ProtocolInfo = "http-get:*:video/mp2t:*,http-get:*:video/mpeg:*,http-get:*:video/MP1S:*,http-get:*:video/mpeg2:*,http-get:*:video/mp4:*,http-get:*:video/x-matroska:*,http-get:*:audio/mpeg:*,http-get:*:audio/mpeg3:*,http-get:*:audio/mp3:*,http-get:*:audio/mp4:*,http-get:*:audio/mp4a-latm:*,http-get:*:image/jpeg:*";
 
             Identification = new DeviceIdentification
             {

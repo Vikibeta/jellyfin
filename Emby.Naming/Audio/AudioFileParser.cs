@@ -1,3 +1,6 @@
+#nullable enable
+#pragma warning disable CS1591
+
 using System;
 using System.IO;
 using System.Linq;
@@ -5,19 +8,12 @@ using Emby.Naming.Common;
 
 namespace Emby.Naming.Audio
 {
-    public class AudioFileParser
+    public static class AudioFileParser
     {
-        private readonly NamingOptions _options;
-
-        public AudioFileParser(NamingOptions options)
+        public static bool IsAudioFile(string path, NamingOptions options)
         {
-            _options = options;
-        }
-
-        public bool IsAudioFile(string path)
-        {
-            var extension = Path.GetExtension(path) ?? string.Empty;
-            return _options.AudioFileExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
+            var extension = Path.GetExtension(path);
+            return options.AudioFileExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
         }
     }
 }

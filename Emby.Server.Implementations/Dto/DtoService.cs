@@ -1,5 +1,8 @@
+#pragma warning disable CS1591
+
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -35,21 +38,23 @@ namespace Emby.Server.Implementations.Dto
         private readonly IProviderManager _providerManager;
 
         private readonly IApplicationHost _appHost;
-        private readonly Func<IMediaSourceManager> _mediaSourceManager;
-        private readonly Func<ILiveTvManager> _livetvManager;
+        private readonly IMediaSourceManager _mediaSourceManager;
+        private readonly Lazy<ILiveTvManager> _livetvManagerFactory;
+
+        private ILiveTvManager LivetvManager => _livetvManagerFactory.Value;
 
         public DtoService(
-            ILoggerFactory loggerFactory,
+            ILogger<DtoService> logger,
             ILibraryManager libraryManager,
             IUserDataManager userDataRepository,
             IItemRepository itemRepo,
             IImageProcessor imageProcessor,
             IProviderManager providerManager,
             IApplicationHost appHost,
-            Func<IMediaSourceManager> mediaSourceManager,
-            Func<ILiveTvManager> livetvManager)
+            IMediaSourceManager mediaSourceManager,
+            Lazy<ILiveTvManager> livetvManagerFactory)
         {
-            _logger = loggerFactory.CreateLogger(nameof(DtoService));
+            _logger = logger;
             _libraryManager = libraryManager;
             _userDataRepository = userDataRepository;
             _itemRepo = itemRepo;
@@ -57,7 +62,7 @@ namespace Emby.Server.Implementations.Dto
             _providerManager = providerManager;
             _appHost = appHost;
             _mediaSourceManager = mediaSourceManager;
-            _livetvManager = livetvManager;
+            _livetvManagerFactory = livetvManagerFactory;
         }
 
         /// <summary>
@@ -79,27 +84,25 @@ namespace Emby.Server.Implementations.Dto
             return GetBaseItemDto(item, options, user, owner);
         }
 
-        public BaseItemDto[] GetBaseItemDtos(IReadOnlyList<BaseItem> items, DtoOptions options, User user = null, BaseItem owner = null)
-            => GetBaseItemDtos(items, items.Count, options, user, owner);
-
-        public BaseItemDto[] GetBaseItemDtos(IEnumerable<BaseItem> items, int itemCount, DtoOptions options, User user = null, BaseItem owner = null)
+        /// <inheritdoc />
+        public IReadOnlyList<BaseItemDto> GetBaseItemDtos(IReadOnlyList<BaseItem> items, DtoOptions options, User user = null, BaseItem owner = null)
         {
-            var returnItems = new BaseItemDto[itemCount];
-            var programTuples = new List<Tuple<BaseItem, BaseItemDto>>();
-            var channelTuples = new List<Tuple<BaseItemDto, LiveTvChannel>>();
+            var returnItems = new BaseItemDto[items.Count];
+            var programTuples = new List<(BaseItem, BaseItemDto)>();
+            var channelTuples = new List<(BaseItemDto, LiveTvChannel)>();
 
-            var index = 0;
-            foreach (var item in items)
+            for (int index = 0; index < items.Count; index++)
             {
+                var item = items[index];
                 var dto = GetBaseItemDtoInternal(item, options, user, owner);
 
                 if (item is LiveTvChannel tvChannel)
                 {
-                    channelTuples.Add(new Tuple<BaseItemDto, LiveTvChannel>(dto, tvChannel));
+                    channelTuples.Add((dto, tvChannel));
                 }
                 else if (item is LiveTvProgram)
                 {
-                    programTuples.Add(new Tuple<BaseItem, BaseItemDto>(item, dto));
+                    programTuples.Add((item, dto));
                 }
 
                 if (item is IItemByName byName)
@@ -120,17 +123,16 @@ namespace Emby.Server.Implementations.Dto
                 }
 
                 returnItems[index] = dto;
-                index++;
             }
 
             if (programTuples.Count > 0)
             {
-                _livetvManager().AddInfoToProgramDto(programTuples, options.Fields, user).GetAwaiter().GetResult();
+                LivetvManager.AddInfoToProgramDto(programTuples, options.Fields, user).GetAwaiter().GetResult();
             }
 
             if (channelTuples.Count > 0)
             {
-                _livetvManager().AddChannelInfo(channelTuples, options, user);
+                LivetvManager.AddChannelInfo(channelTuples, options, user);
             }
 
             return returnItems;
@@ -139,33 +141,32 @@ namespace Emby.Server.Implementations.Dto
         public BaseItemDto GetBaseItemDto(BaseItem item, DtoOptions options, User user = null, BaseItem owner = null)
         {
             var dto = GetBaseItemDtoInternal(item, options, user, owner);
-            var tvChannel = item as LiveTvChannel;
-            if (tvChannel != null)
+            if (item is LiveTvChannel tvChannel)
             {
-                var list = new List<Tuple<BaseItemDto, LiveTvChannel>> { new Tuple<BaseItemDto, LiveTvChannel>(dto, tvChannel) };
-                _livetvManager().AddChannelInfo(list, options, user);
+                var list = new List<(BaseItemDto, LiveTvChannel)>(1) { (dto, tvChannel) };
+                LivetvManager.AddChannelInfo(list, options, user);
             }
             else if (item is LiveTvProgram)
             {
-                var list = new List<Tuple<BaseItem, BaseItemDto>> { new Tuple<BaseItem, BaseItemDto>(item, dto) };
-                var task = _livetvManager().AddInfoToProgramDto(list, options.Fields, user);
+                var list = new List<(BaseItem, BaseItemDto)>(1) { (item, dto) };
+                var task = LivetvManager.AddInfoToProgramDto(list, options.Fields, user);
                 Task.WaitAll(task);
             }
 
-            var byName = item as IItemByName;
-
-            if (byName != null)
+            if (item is IItemByName itemByName
+                && options.ContainsField(ItemFields.ItemCounts))
             {
-                if (options.ContainsField(ItemFields.ItemCounts))
-                {
-                    SetItemByNameInfo(item, dto, GetTaggedItems(byName, user, new DtoOptions(false)
-                    {
-                        EnableImages = false
-
-                    }), user);
-                }
-
-                return dto;
+                SetItemByNameInfo(
+                    item,
+                    dto,
+                    GetTaggedItems(
+                        itemByName,
+                        user,
+                        new DtoOptions(false)
+                        {
+                            EnableImages = false
+                        }),
+                    user);
             }
 
             return dto;
@@ -173,12 +174,12 @@ namespace Emby.Server.Implementations.Dto
 
         private static IList<BaseItem> GetTaggedItems(IItemByName byName, User user, DtoOptions options)
         {
-            return byName.GetTaggedItems(new InternalItemsQuery(user)
-            {
-                Recursive = true,
-                DtoOptions = options
-
-            });
+            return byName.GetTaggedItems(
+                new InternalItemsQuery(user)
+                {
+                    Recursive = true,
+                    DtoOptions = options
+                });
         }
 
         private BaseItemDto GetBaseItemDtoInternal(BaseItem item, DtoOptions options, User user = null, BaseItem owner = null)
@@ -213,7 +214,7 @@ namespace Emby.Server.Implementations.Dto
 
             if (options.ContainsField(ItemFields.DisplayPreferencesId))
             {
-                dto.DisplayPreferencesId = item.DisplayPreferencesId.ToString("N");
+                dto.DisplayPreferencesId = item.DisplayPreferencesId.ToString("N", CultureInfo.InvariantCulture);
             }
 
             if (user != null)
@@ -221,15 +222,12 @@ namespace Emby.Server.Implementations.Dto
                 AttachUserSpecificInfo(dto, item, user, options);
             }
 
-            var hasMediaSources = item as IHasMediaSources;
-            if (hasMediaSources != null)
+            if (item is IHasMediaSources
+                && options.ContainsField(ItemFields.MediaSources))
             {
-                if (options.ContainsField(ItemFields.MediaSources))
-                {
-                    dto.MediaSources = _mediaSourceManager().GetStaticMediaSources(item, true, user).ToArray();
+                dto.MediaSources = _mediaSourceManager.GetStaticMediaSources(item, true, user).ToArray();
 
-                    NormalizeMediaSourceContainers(dto);
-                }
+                NormalizeMediaSourceContainers(dto);
             }
 
             if (options.ContainsField(ItemFields.Studios))
@@ -258,7 +256,7 @@ namespace Emby.Server.Implementations.Dto
                 dto.Etag = item.GetEtag(user);
             }
 
-            var liveTvManager = _livetvManager();
+            var liveTvManager = LivetvManager;
             var activeRecording = liveTvManager.GetActiveRecordingInfo(item.Path);
             if (activeRecording != null)
             {
@@ -444,7 +442,7 @@ namespace Emby.Server.Implementations.Dto
         /// <exception cref="ArgumentNullException">item</exception>
         public string GetDtoId(BaseItem item)
         {
-            return item.Id.ToString("N");
+            return item.Id.ToString("N", CultureInfo.InvariantCulture);
         }
 
         private static void SetBookProperties(BaseItemDto dto, Book item)
@@ -607,8 +605,8 @@ namespace Emby.Server.Implementations.Dto
 
                 if (dictionary.TryGetValue(person.Name, out Person entity))
                 {
-                    baseItemPerson.PrimaryImageTag = GetImageCacheTag(entity, ImageType.Primary);
-                    baseItemPerson.Id = entity.Id.ToString("N");
+                    baseItemPerson.PrimaryImageTag = GetTagAndFillBlurhash(dto, entity, ImageType.Primary);
+                    baseItemPerson.Id = entity.Id.ToString("N", CultureInfo.InvariantCulture);
                     list.Add(baseItemPerson);
                 }
             }
@@ -656,6 +654,70 @@ namespace Emby.Server.Implementations.Dto
             return _libraryManager.GetGenreId(name);
         }
 
+        private string GetTagAndFillBlurhash(BaseItemDto dto, BaseItem item, ImageType imageType, int imageIndex = 0)
+        {
+            var image = item.GetImageInfo(imageType, imageIndex);
+            if (image != null)
+            {
+                return GetTagAndFillBlurhash(dto, item, image);
+            }
+
+            return null;
+        }
+
+        private string GetTagAndFillBlurhash(BaseItemDto dto, BaseItem item, ItemImageInfo image)
+        {
+            var tag = GetImageCacheTag(item, image);
+            if (!string.IsNullOrEmpty(image.BlurHash))
+            {
+                if (dto.ImageBlurHashes == null)
+                {
+                    dto.ImageBlurHashes = new Dictionary<ImageType, Dictionary<string, string>>();
+                }
+
+                if (!dto.ImageBlurHashes.ContainsKey(image.Type))
+                {
+                    dto.ImageBlurHashes[image.Type] = new Dictionary<string, string>();
+                }
+
+                dto.ImageBlurHashes[image.Type][tag] = image.BlurHash;
+            }
+
+            return tag;
+        }
+
+        private string[] GetTagsAndFillBlurhashes(BaseItemDto dto, BaseItem item, ImageType imageType, int limit)
+        {
+            return GetTagsAndFillBlurhashes(dto, item, imageType, item.GetImages(imageType).Take(limit).ToList());
+        }
+
+        private string[] GetTagsAndFillBlurhashes(BaseItemDto dto, BaseItem item, ImageType imageType, List<ItemImageInfo> images)
+        {
+            var tags = GetImageTags(item, images);
+            var hashes = new Dictionary<string, string>();
+            for (int i = 0; i < images.Count; i++)
+            {
+                var img = images[i];
+                if (!string.IsNullOrEmpty(img.BlurHash))
+                {
+                    var tag = tags[i];
+                    hashes[tag] = img.BlurHash;
+                }
+            }
+
+            if (hashes.Count > 0)
+            {
+                if (dto.ImageBlurHashes == null)
+                {
+                    dto.ImageBlurHashes = new Dictionary<ImageType, Dictionary<string, string>>();
+                }
+
+                dto.ImageBlurHashes[imageType] = hashes;
+            }
+
+            return tags;
+        }
+
         /// <summary>
         /// Sets simple property values on a DTOBaseItem
         /// </summary>
@@ -676,8 +738,8 @@ namespace Emby.Server.Implementations.Dto
                 dto.LockData = item.IsLocked;
                 dto.ForcedSortName = item.ForcedSortName;
             }
-            dto.Container = item.Container;
 
+            dto.Container = item.Container;
             dto.EndDate = item.EndDate;
 
             if (options.ContainsField(ItemFields.ExternalUrls))
@@ -696,10 +758,12 @@ namespace Emby.Server.Implementations.Dto
                 dto.AspectRatio = hasAspectRatio.AspectRatio;
             }
 
+            dto.ImageBlurHashes = new Dictionary<ImageType, Dictionary<string, string>>();
+
             var backdropLimit = options.GetImageLimit(ImageType.Backdrop);
             if (backdropLimit > 0)
             {
-                dto.BackdropImageTags = GetImageTags(item, item.GetImages(ImageType.Backdrop).Take(backdropLimit).ToList());
+                dto.BackdropImageTags = GetTagsAndFillBlurhashes(dto, item, ImageType.Backdrop, backdropLimit);
             }
 
             if (options.ContainsField(ItemFields.ScreenshotImageTags))
@@ -707,7 +771,7 @@ namespace Emby.Server.Implementations.Dto
                 var screenshotLimit = options.GetImageLimit(ImageType.Screenshot);
                 if (screenshotLimit > 0)
                 {
-                    dto.ScreenshotImageTags = GetImageTags(item, item.GetImages(ImageType.Screenshot).Take(screenshotLimit).ToList());
+                    dto.ScreenshotImageTags = GetTagsAndFillBlurhashes(dto, item, ImageType.Screenshot, screenshotLimit);
                 }
             }
 
@@ -723,12 +787,11 @@ namespace Emby.Server.Implementations.Dto
 
                 // Prevent implicitly captured closure
                 var currentItem = item;
-                foreach (var image in currentItem.ImageInfos.Where(i => !currentItem.AllowsMultipleImages(i.Type))
-                    .ToList())
+                foreach (var image in currentItem.ImageInfos.Where(i => !currentItem.AllowsMultipleImages(i.Type)))
                 {
                     if (options.GetImageLimit(image.Type) > 0)
                     {
-                        var tag = GetImageCacheTag(item, image);
+                        var tag = GetTagAndFillBlurhash(dto, item, image);
 
                         if (tag != null)
                         {
@@ -768,14 +831,12 @@ namespace Emby.Server.Implementations.Dto
 
             dto.CriticRating = item.CriticRating;
 
-            var hasDisplayOrder = item as IHasDisplayOrder;
-            if (hasDisplayOrder != null)
+            if (item is IHasDisplayOrder hasDisplayOrder)
             {
                 dto.DisplayOrder = hasDisplayOrder.DisplayOrder;
             }
 
-            var hasCollectionType = item as IHasCollectionType;
-            if (hasCollectionType != null)
+            if (item is IHasCollectionType hasCollectionType)
             {
                 dto.CollectionType = hasCollectionType.CollectionType;
             }
@@ -875,8 +936,7 @@ namespace Emby.Server.Implementations.Dto
                 if (albumParent != null)
                 {
                     dto.AlbumId = albumParent.Id;
-
-                    dto.AlbumPrimaryImageTag = GetImageCacheTag(albumParent, ImageType.Primary);
+                    dto.AlbumPrimaryImageTag = GetTagAndFillBlurhash(dto, albumParent, ImageType.Primary);
                 }
 
                 //if (options.ContainsField(ItemFields.MediaSourceCount))
@@ -885,15 +945,14 @@ namespace Emby.Server.Implementations.Dto
                 //}
             }
 
-            var hasArtist = item as IHasArtist;
-            if (hasArtist != null)
+            if (item is IHasArtist hasArtist)
             {
                 dto.Artists = hasArtist.Artists;
 
                 //var artistItems = _libraryManager.GetArtists(new InternalItemsQuery
                 //{
                 //    EnableTotalRecordCount = false,
-                //    ItemIds = new[] { item.Id.ToString("N") }
+                //    ItemIds = new[] { item.Id.ToString("N", CultureInfo.InvariantCulture) }
                 //});
 
                 //dto.ArtistItems = artistItems.Items
@@ -903,7 +962,7 @@ namespace Emby.Server.Implementations.Dto
                 //        return new NameIdPair
                 //        {
                 //            Name = artist.Name,
-                //            Id = artist.Id.ToString("N")
+                //            Id = artist.Id.ToString("N", CultureInfo.InvariantCulture)
                 //        };
                 //    })
                 //    .ToList();
@@ -946,7 +1005,7 @@ namespace Emby.Server.Implementations.Dto
                 //var artistItems = _libraryManager.GetAlbumArtists(new InternalItemsQuery
                 //{
                 //    EnableTotalRecordCount = false,
-                //    ItemIds = new[] { item.Id.ToString("N") }
+                //    ItemIds = new[] { item.Id.ToString("N", CultureInfo.InvariantCulture) }
                 //});
 
                 //dto.AlbumArtists = artistItems.Items
@@ -956,7 +1015,7 @@ namespace Emby.Server.Implementations.Dto
                 //        return new NameIdPair
                 //        {
                 //            Name = artist.Name,
-                //            Id = artist.Id.ToString("N")
+                //            Id = artist.Id.ToString("N", CultureInfo.InvariantCulture)
                 //        };
                 //    })
                 //    .ToList();
@@ -1044,7 +1103,7 @@ namespace Emby.Server.Implementations.Dto
                         }
                         else
                         {
-                            string id = item.Id.ToString("N");
+                            string id = item.Id.ToString("N", CultureInfo.InvariantCulture);
                             mediaStreams = dto.MediaSources.Where(i => string.Equals(i.Id, id, StringComparison.OrdinalIgnoreCase))
                                 .SelectMany(i => i.MediaStreams)
                                 .ToArray();
@@ -1052,7 +1111,7 @@ namespace Emby.Server.Implementations.Dto
                     }
                     else
                     {
-                        mediaStreams = _mediaSourceManager().GetStaticMediaSources(item, true)[0].MediaStreams.ToArray();
+                        mediaStreams = _mediaSourceManager.GetStaticMediaSources(item, true)[0].MediaStreams.ToArray();
                     }
 
                     dto.MediaStreams = mediaStreams;
@@ -1063,27 +1122,23 @@ namespace Emby.Server.Implementations.Dto
 
             if (options.ContainsField(ItemFields.SpecialFeatureCount))
             {
-                if (allExtras == null)
-                {
-                    allExtras = item.GetExtras().ToArray();
-                }
-
+                allExtras = item.GetExtras().ToArray();
                 dto.SpecialFeatureCount = allExtras.Count(i => i.ExtraType.HasValue && BaseItem.DisplayExtraTypes.Contains(i.ExtraType.Value));
             }
 
             if (options.ContainsField(ItemFields.LocalTrailerCount))
             {
-                if (allExtras == null)
-                {
-                    allExtras = item.GetExtras().ToArray();
-                }
+                allExtras ??= item.GetExtras().ToArray();
+                dto.LocalTrailerCount = allExtras.Count(i => i.ExtraType == ExtraType.Trailer);
 
-                dto.LocalTrailerCount = allExtras.Count(i => i.ExtraType.HasValue && i.ExtraType.Value == ExtraType.Trailer);
+                if (item is IHasTrailers hasTrailers)
+                {
+                    dto.LocalTrailerCount += hasTrailers.GetTrailerCount();
+                }
             }
 
             // Add EpisodeInfo
-            var episode = item as Episode;
-            if (episode != null)
+            if (item is Episode episode)
             {
                 dto.IndexNumberEnd = episode.IndexNumberEnd;
                 dto.SeriesName = episode.SeriesName;
@@ -1101,12 +1156,14 @@ namespace Emby.Server.Implementations.Dto
 
                 Series episodeSeries = null;
 
+                // this block will add the series poster for episodes without a poster
+                // TODO maybe remove the if statement entirely
                 //if (options.ContainsField(ItemFields.SeriesPrimaryImage))
                 {
                     episodeSeries = episodeSeries ?? episode.Series;
                     if (episodeSeries != null)
                     {
-                        dto.SeriesPrimaryImageTag = GetImageCacheTag(episodeSeries, ImageType.Primary);
+                        dto.SeriesPrimaryImageTag = GetTagAndFillBlurhash(dto, episodeSeries, ImageType.Primary);
                     }
                 }
 
@@ -1121,8 +1178,7 @@ namespace Emby.Server.Implementations.Dto
             }
 
             // Add SeriesInfo
-            var series = item as Series;
-            if (series != null)
+            if (item is Series series)
             {
                 dto.AirDays = series.AirDays;
                 dto.AirTime = series.AirTime;
@@ -1130,8 +1186,7 @@ namespace Emby.Server.Implementations.Dto
             }
 
             // Add SeasonInfo
-            var season = item as Season;
-            if (season != null)
+            if (item is Season season)
             {
                 dto.SeriesName = season.SeriesName;
                 dto.SeriesId = season.SeriesId;
@@ -1147,24 +1202,24 @@ namespace Emby.Server.Implementations.Dto
                     }
                 }
 
+                // this block will add the series poster for seasons without a poster
+                // TODO maybe remove the if statement entirely
                 //if (options.ContainsField(ItemFields.SeriesPrimaryImage))
                 {
                     series = series ?? season.Series;
                     if (series != null)
                     {
-                        dto.SeriesPrimaryImageTag = GetImageCacheTag(series, ImageType.Primary);
+                        dto.SeriesPrimaryImageTag = GetTagAndFillBlurhash(dto, series, ImageType.Primary);
                     }
                 }
             }
 
-            var musicVideo = item as MusicVideo;
-            if (musicVideo != null)
+            if (item is MusicVideo musicVideo)
             {
                 SetMusicVideoProperties(dto, musicVideo);
             }
 
-            var book = item as Book;
-            if (book != null)
+            if (item is Book book)
             {
                 SetBookProperties(dto, book);
             }
@@ -1204,8 +1259,7 @@ namespace Emby.Server.Implementations.Dto
                 }
             }
 
-            var photo = item as Photo;
-            if (photo != null)
+            if (item is Photo photo)
             {
                 SetPhotoProperties(dto, photo);
             }
@@ -1224,8 +1278,7 @@ namespace Emby.Server.Implementations.Dto
 
         private BaseItem GetImageDisplayParent(BaseItem currentItem, BaseItem originalItem)
         {
-            var musicAlbum = currentItem as MusicAlbum;
-            if (musicAlbum != null)
+            if (currentItem is MusicAlbum musicAlbum)
             {
                 var artist = musicAlbum.GetMusicArtist(new DtoOptions(false));
                 if (artist != null)
@@ -1286,7 +1339,7 @@ namespace Emby.Server.Implementations.Dto
                     if (image != null)
                     {
                         dto.ParentLogoItemId = GetDtoId(parent);
-                        dto.ParentLogoImageTag = GetImageCacheTag(parent, image);
+                        dto.ParentLogoImageTag = GetTagAndFillBlurhash(dto, parent, image);
                     }
                 }
                 if (artLimit > 0 && !(imageTags != null && imageTags.ContainsKey(ImageType.Art)) && dto.ParentArtItemId == null)
@@ -1296,7 +1349,7 @@ namespace Emby.Server.Implementations.Dto
                     if (image != null)
                     {
                         dto.ParentArtItemId = GetDtoId(parent);
-                        dto.ParentArtImageTag = GetImageCacheTag(parent, image);
+                        dto.ParentArtImageTag = GetTagAndFillBlurhash(dto, parent, image);
                     }
                 }
                 if (thumbLimit > 0 && !(imageTags != null && imageTags.ContainsKey(ImageType.Thumb)) && (dto.ParentThumbItemId == null || parent is Series) && !(parent is ICollectionFolder) && !(parent is UserView))
@@ -1306,7 +1359,7 @@ namespace Emby.Server.Implementations.Dto
                     if (image != null)
                     {
                         dto.ParentThumbItemId = GetDtoId(parent);
-                        dto.ParentThumbImageTag = GetImageCacheTag(parent, image);
+                        dto.ParentThumbImageTag = GetTagAndFillBlurhash(dto, parent, image);
                     }
                 }
                 if (backdropLimit > 0 && !((dto.BackdropImageTags != null && dto.BackdropImageTags.Length > 0) || (dto.ParentBackdropImageTags != null && dto.ParentBackdropImageTags.Length > 0)))
@@ -1316,7 +1369,7 @@ namespace Emby.Server.Implementations.Dto
                     if (images.Count > 0)
                     {
                         dto.ParentBackdropItemId = GetDtoId(parent);
-                        dto.ParentBackdropImageTags = GetImageTags(parent, images);
+                        dto.ParentBackdropImageTags = GetTagsAndFillBlurhashes(dto, parent, ImageType.Backdrop, images);
                     }
                 }
 
@@ -1363,56 +1416,33 @@ namespace Emby.Server.Implementations.Dto
                 return null;
             }
 
-            var supportedEnhancers = _imageProcessor.GetSupportedEnhancers(item, ImageType.Primary);
-
             ImageDimensions size;
 
             var defaultAspectRatio = item.GetDefaultPrimaryImageAspectRatio();
 
             if (defaultAspectRatio > 0)
             {
-                if (supportedEnhancers.Length == 0)
-                {
-                    return defaultAspectRatio;
-                }
-
-                int dummyWidth = 200;
-                int dummyHeight = Convert.ToInt32(dummyWidth / defaultAspectRatio);
-                size = new ImageDimensions(dummyWidth, dummyHeight);
+                return defaultAspectRatio;
             }
-            else
+
+            if (!imageInfo.IsLocalFile)
             {
-                if (!imageInfo.IsLocalFile)
+                return null;
+            }
+
+            try
+            {
+                size = _imageProcessor.GetImageDimensions(item, imageInfo);
+
+                if (size.Width <= 0 || size.Height <= 0)
                 {
                     return null;
                 }
-
-                try
-                {
-                    size = _imageProcessor.GetImageDimensions(item, imageInfo);
-
-                    if (size.Width <= 0 || size.Height <= 0)
-                    {
-                        return null;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to determine primary image aspect ratio for {0}", imageInfo.Path);
-                    return null;
-                }
             }
-
-            foreach (var enhancer in supportedEnhancers)
+            catch (Exception ex)
             {
-                try
-                {
-                    size = enhancer.GetEnhancedImageSize(item, ImageType.Primary, 0, size);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error in image enhancer: {0}", enhancer.GetType().Name);
-                }
+                _logger.LogError(ex, "Failed to determine primary image aspect ratio for {0}", imageInfo.Path);
+                return null;
             }
 
             var width = size.Width;

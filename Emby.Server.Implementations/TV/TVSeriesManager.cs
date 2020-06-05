@@ -1,7 +1,9 @@
+#pragma warning disable CS1591
+
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
-using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
@@ -17,14 +19,12 @@ namespace Emby.Server.Implementations.TV
         private readonly IUserManager _userManager;
         private readonly IUserDataManager _userDataManager;
         private readonly ILibraryManager _libraryManager;
-        private readonly IServerConfigurationManager _config;
 
-        public TVSeriesManager(IUserManager userManager, IUserDataManager userDataManager, ILibraryManager libraryManager, IServerConfigurationManager config)
+        public TVSeriesManager(IUserManager userManager, IUserDataManager userDataManager, ILibraryManager libraryManager)
         {
             _userManager = userManager;
             _userDataManager = userDataManager;
             _libraryManager = libraryManager;
-            _config = config;
         }
 
         public QueryResult<BaseItem> GetNextUp(NextUpQuery request, DtoOptions dtoOptions)
@@ -73,7 +73,7 @@ namespace Emby.Server.Implementations.TV
             {
                 parents = _libraryManager.GetUserRootFolder().GetChildren(user, true)
                    .Where(i => i is Folder)
-                   .Where(i => !user.Configuration.LatestItemsExcludes.Contains(i.Id.ToString("N")))
+                   .Where(i => !user.Configuration.LatestItemsExcludes.Contains(i.Id.ToString("N", CultureInfo.InvariantCulture)))
                    .ToArray();
             }
 

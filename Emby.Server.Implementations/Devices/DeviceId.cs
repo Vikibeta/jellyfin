@@ -1,8 +1,10 @@
+#pragma warning disable CS1591
+
 using System;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using MediaBrowser.Common.Configuration;
-using MediaBrowser.Model.IO;
 using Microsoft.Extensions.Logging;
 
 namespace Emby.Server.Implementations.Devices
@@ -67,7 +69,7 @@ namespace Emby.Server.Implementations.Devices
 
         private static string GetNewId()
         {
-            return Guid.NewGuid().ToString("N");
+            return Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
         }
 
         private string GetDeviceId()

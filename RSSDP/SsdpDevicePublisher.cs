@@ -2,13 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
-using System.Net.Http;
-using System.Text;
+using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
-using MediaBrowser.Model.Net;
 using MediaBrowser.Common.Net;
-using Rssdp;
 
 namespace Rssdp.Infrastructure
 {
@@ -89,7 +86,6 @@ namespace Rssdp.Infrastructure
 
             ThrowIfDisposed();
 
-            var minCacheTime = TimeSpan.Zero;
             bool wasAdded = false;
             lock (_Devices)
             {
@@ -97,7 +93,6 @@ namespace Rssdp.Infrastructure
                 {
                     _Devices.Add(device);
                     wasAdded = true;
-                    minCacheTime = GetMinimumNonZeroCacheLifetime();
                 }
             }
 
@@ -123,14 +118,12 @@ namespace Rssdp.Infrastructure
             if (device == null) throw new ArgumentNullException(nameof(device));
 
             bool wasRemoved = false;
-            var minCacheTime = TimeSpan.Zero;
             lock (_Devices)
             {
                 if (_Devices.Contains(device))
                 {
                     _Devices.Remove(device);
                     wasRemoved = true;
-                    minCacheTime = GetMinimumNonZeroCacheLifetime();
                 }
             }
 
@@ -199,7 +192,12 @@ namespace Rssdp.Infrastructure
             }
         }
 
-        private void ProcessSearchRequest(string mx, string searchTarget, IpEndPointInfo remoteEndPoint, IpAddressInfo receivedOnlocalIpAddress, CancellationToken cancellationToken)
+        private void ProcessSearchRequest(
+            string mx,
+            string searchTarget,
+            IPEndPoint remoteEndPoint,
+            IPAddress receivedOnlocalIpAddress,
+            CancellationToken cancellationToken)
         {
             if (String.IsNullOrEmpty(searchTarget))
             {
@@ -258,7 +256,7 @@ namespace Rssdp.Infrastructure
                     foreach (var device in deviceList)
                     {
                         if (!_sendOnlyMatchedHost ||
-                            _networkManager.IsInSameSubnet(device.ToRootDevice().Address, remoteEndPoint.IpAddress, device.ToRootDevice().SubnetMask))
+                            _networkManager.IsInSameSubnet(device.ToRootDevice().Address, remoteEndPoint.Address, device.ToRootDevice().SubnetMask))
                         {
                             SendDeviceSearchResponses(device, remoteEndPoint, receivedOnlocalIpAddress, cancellationToken);
                         }
@@ -276,7 +274,11 @@ namespace Rssdp.Infrastructure
             return _Devices.Union(_Devices.SelectManyRecursive<SsdpDevice>((d) => d.Devices));
         }
 
-        private void SendDeviceSearchResponses(SsdpDevice device, IpEndPointInfo endPoint, IpAddressInfo receivedOnlocalIpAddress, CancellationToken cancellationToken)
+        private void SendDeviceSearchResponses(
+            SsdpDevice device,
+            IPEndPoint endPoint,
+            IPAddress receivedOnlocalIpAddress,
+            CancellationToken cancellationToken)
         {
             bool isRootDevice = (device as SsdpRootDevice) != null;
             if (isRootDevice)
@@ -296,7 +298,13 @@ namespace Rssdp.Infrastructure
             return String.Format("{0}::{1}", udn, fullDeviceType);
         }
 
-        private async void SendSearchResponse(string searchTarget, SsdpDevice device, string uniqueServiceName, IpEndPointInfo endPoint, IpAddressInfo receivedOnlocalIpAddress, CancellationToken cancellationToken)
+        private async void SendSearchResponse(
+            string searchTarget,
+            SsdpDevice device,
+            string uniqueServiceName,
+            IPEndPoint endPoint,
+            IPAddress receivedOnlocalIpAddress,
+            CancellationToken cancellationToken)
         {
             var rootDevice = device.ToRootDevice();
 
@@ -333,7 +341,7 @@ namespace Rssdp.Infrastructure
             //WriteTrace(String.Format("Sent search response to " + endPoint.ToString()), device);
         }
 
-        private bool IsDuplicateSearchRequest(string searchTarget, IpEndPointInfo endPoint)
+        private bool IsDuplicateSearchRequest(string searchTarget, IPEndPoint endPoint)
         {
             var isDuplicateRequest = false;
 
@@ -556,7 +564,7 @@ namespace Rssdp.Infrastructure
 
         private class SearchRequest
         {
-            public IpEndPointInfo EndPoint { get; set; }
+            public IPEndPoint EndPoint { get; set; }
             public DateTime Received { get; set; }
             public string SearchTarget { get; set; }
 

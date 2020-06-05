@@ -3,10 +3,11 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using MediaBrowser.Common.Net;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.IO;
-using MediaBrowser.Model.Net;
 using MediaBrowser.Model.Services;
+using Microsoft.Extensions.Logging;
 
 namespace MediaBrowser.Api
 {
@@ -52,6 +53,7 @@ namespace MediaBrowser.Api
         public bool? IsFile { get; set; }
     }
 
+    [Obsolete]
     [Route("/Environment/NetworkShares", "GET", Summary = "Gets shares from a network device")]
     public class GetNetworkShares : IReturn<List<FileSystemEntryInfo>>
     {
@@ -107,8 +109,8 @@ namespace MediaBrowser.Api
     [Authenticated(Roles = "Admin", AllowBeforeStartupWizard = true)]
     public class EnvironmentService : BaseApiService
     {
-        const char UncSeparator = '\\';
-        const string UncSeparatorString = "\\";
+        private const char UncSeparator = '\\';
+        private const string UncSeparatorString = "\\";
 
         /// <summary>
         /// The _network manager
@@ -120,13 +122,14 @@ namespace MediaBrowser.Api
         /// Initializes a new instance of the <see cref="EnvironmentService" /> class.
         /// </summary>
         /// <param name="networkManager">The network manager.</param>
-        public EnvironmentService(INetworkManager networkManager, IFileSystem fileSystem)
+        public EnvironmentService(
+            ILogger<EnvironmentService> logger,
+            IServerConfigurationManager serverConfigurationManager,
+            IHttpResultFactory httpResultFactory,
+            INetworkManager networkManager,
+            IFileSystem fileSystem)
+            : base(logger, serverConfigurationManager, httpResultFactory)
         {
-            if (networkManager == null)
-            {
-                throw new ArgumentNullException(nameof(networkManager));
-            }
-
             _networkManager = networkManager;
             _fileSystem = fileSystem;
         }
@@ -174,7 +177,7 @@ namespace MediaBrowser.Api
         }
 
         public object Get(GetDefaultDirectoryBrowser request) =>
-            ToOptimizedResult(new DefaultDirectoryBrowserInfo {Path = null});
+            ToOptimizedResult(new DefaultDirectoryBrowserInfo { Path = null });
 
         /// <summary>
         /// Gets the specified request.
@@ -192,22 +195,18 @@ namespace MediaBrowser.Api
 
             var networkPrefix = UncSeparatorString + UncSeparatorString;
 
-            if (path.StartsWith(networkPrefix, StringComparison.OrdinalIgnoreCase) && path.LastIndexOf(UncSeparator) == 1)
+            if (path.StartsWith(networkPrefix, StringComparison.OrdinalIgnoreCase)
+                && path.LastIndexOf(UncSeparator) == 1)
             {
-                return ToOptimizedResult(GetNetworkShares(path).OrderBy(i => i.Path).ToList());
+                return ToOptimizedResult(Array.Empty<FileSystemEntryInfo>());
             }
 
             return ToOptimizedResult(GetFileSystemEntries(request).ToList());
         }
 
+        [Obsolete]
         public object Get(GetNetworkShares request)
-        {
-            var path = request.Path;
-
-            var shares = GetNetworkShares(path).OrderBy(i => i.Path).ToList();
-
-            return ToOptimizedResult(shares);
-        }
+            => ToOptimizedResult(Array.Empty<FileSystemEntryInfo>());
 
         /// <summary>
         /// Gets the specified request.
@@ -227,12 +226,7 @@ namespace MediaBrowser.Api
         /// <returns>IEnumerable{FileSystemEntryInfo}.</returns>
         private IEnumerable<FileSystemEntryInfo> GetDrives()
         {
-            return _fileSystem.GetDrives().Select(d => new FileSystemEntryInfo
-            {
-                Name = d.Name,
-                Path = d.FullName,
-                Type = FileSystemEntryType.Directory
-            });
+            return _fileSystem.GetDrives().Select(d => new FileSystemEntryInfo(d.Name, d.FullName, FileSystemEntryType.Directory));
         }
 
         /// <summary>
@@ -241,26 +235,7 @@ namespace MediaBrowser.Api
         /// <param name="request">The request.</param>
         /// <returns>System.Object.</returns>
         public object Get(GetNetworkDevices request)
-        {
-            var result = _networkManager.GetNetworkDevices().ToList();
-
-            return ToOptimizedResult(result);
-        }
-
-        /// <summary>
-        /// Gets the network shares.
-        /// </summary>
-        /// <param name="path">The path.</param>
-        /// <returns>IEnumerable{FileSystemEntryInfo}.</returns>
-        private IEnumerable<FileSystemEntryInfo> GetNetworkShares(string path)
-        {
-            return _networkManager.GetNetworkShares(path).Where(s => s.ShareType == NetworkShareType.Disk).Select(c => new FileSystemEntryInfo
-            {
-                Name = c.Name,
-                Path = Path.Combine(path, c.Name),
-                Type = FileSystemEntryType.NetworkShare
-            });
-        }
+            => ToOptimizedResult(Array.Empty<FileSystemEntryInfo>());
 
         /// <summary>
         /// Gets the file system entries.
@@ -278,21 +253,10 @@ namespace MediaBrowser.Api
                     return false;
                 }
 
-                if (!request.IncludeDirectories && isDirectory)
-                {
-                    return false;
-                }
-
-                return true;
+                return request.IncludeDirectories || !isDirectory;
             });
 
-            return entries.Select(f => new FileSystemEntryInfo
-            {
-                Name = f.Name,
-                Path = f.FullName,
-                Type = f.IsDirectory ? FileSystemEntryType.Directory : FileSystemEntryType.File
-
-            });
+            return entries.Select(f => new FileSystemEntryInfo(f.Name, f.FullName, f.IsDirectory ? FileSystemEntryType.Directory : FileSystemEntryType.File));
         }
 
         public object Get(GetParentPath request)

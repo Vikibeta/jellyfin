@@ -118,7 +118,7 @@ namespace MediaBrowser.Controller.Library
         /// </summary>
         void QueueLibraryScan();
 
-        void UpdateImages(BaseItem item);
+        void UpdateImages(BaseItem item, bool forceUpdate = false);
 
         /// <summary>
         /// Gets the default view.
@@ -157,7 +157,8 @@ namespace MediaBrowser.Controller.Library
         /// <param name="introProviders">The intro providers.</param>
         /// <param name="itemComparers">The item comparers.</param>
         /// <param name="postscanTasks">The postscan tasks.</param>
-        void AddParts(IEnumerable<IResolverIgnoreRule> rules,
+        void AddParts(
+            IEnumerable<IResolverIgnoreRule> rules,
             IEnumerable<IItemResolver> resolvers,
             IEnumerable<IIntroProvider> introProviders,
             IEnumerable<IBaseItemComparer> itemComparers,
@@ -194,6 +195,7 @@ namespace MediaBrowser.Controller.Library
         /// Updates the item.
         /// </summary>
         void UpdateItems(IEnumerable<BaseItem> items, BaseItem parent, ItemUpdateType updateReason, CancellationToken cancellationToken);
+
         void UpdateItem(BaseItem item, BaseItem parent, ItemUpdateType updateReason, CancellationToken cancellationToken);
 
         /// <summary>
@@ -348,9 +350,6 @@ namespace MediaBrowser.Controller.Library
         /// <param name="path">The path.</param>
         /// <returns><c>true</c> if [is audio file] [the specified path]; otherwise, <c>false</c>.</returns>
         bool IsAudioFile(string path);
-
-        bool IsAudioFile(string path, LibraryOptions libraryOptions);
-        bool IsVideoFile(string path, LibraryOptions libraryOptions);
 
         /// <summary>
         /// Gets the season number from path.

@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Audio;
@@ -58,25 +58,17 @@ namespace MediaBrowser.Api.UserLibrary
         /// <param name="libraryManager">The library manager.</param>
         /// <param name="localization">The localization.</param>
         /// <param name="dtoService">The dto service.</param>
-        public ItemsService(IUserManager userManager, ILibraryManager libraryManager, ILocalizationManager localization, IDtoService dtoService, IAuthorizationContext authContext)
+        public ItemsService(
+            ILogger<ItemsService> logger,
+            IServerConfigurationManager serverConfigurationManager,
+            IHttpResultFactory httpResultFactory,
+            IUserManager userManager,
+            ILibraryManager libraryManager,
+            ILocalizationManager localization,
+            IDtoService dtoService,
+            IAuthorizationContext authContext)
+            : base(logger, serverConfigurationManager, httpResultFactory)
         {
-            if (userManager == null)
-            {
-                throw new ArgumentNullException(nameof(userManager));
-            }
-            if (libraryManager == null)
-            {
-                throw new ArgumentNullException(nameof(libraryManager));
-            }
-            if (localization == null)
-            {
-                throw new ArgumentNullException(nameof(localization));
-            }
-            if (dtoService == null)
-            {
-                throw new ArgumentNullException(nameof(dtoService));
-            }
-
             _userManager = userManager;
             _libraryManager = libraryManager;
             _localization = localization;
@@ -99,7 +91,7 @@ namespace MediaBrowser.Api.UserLibrary
             {
                 ancestorIds = _libraryManager.GetUserRootFolder().GetChildren(user, true)
                     .Where(i => i is Folder)
-                    .Where(i => !excludeFolderIds.Contains(i.Id.ToString("N")))
+                    .Where(i => !excludeFolderIds.Contains(i.Id.ToString("N", CultureInfo.InvariantCulture)))
                     .Select(i => i.Id)
                     .ToArray();
             }
@@ -127,6 +119,7 @@ namespace MediaBrowser.Api.UserLibrary
 
             var result = new QueryResult<BaseItemDto>
             {
+                StartIndex = request.StartIndex.GetValueOrDefault(),
                 TotalRecordCount = itemsResult.TotalRecordCount,
                 Items = returnItems
             };
@@ -175,13 +168,9 @@ namespace MediaBrowser.Api.UserLibrary
 
             var dtoList = _dtoService.GetBaseItemDtos(result.Items, dtoOptions, user);
 
-            if (dtoList == null)
-            {
-                throw new InvalidOperationException("GetBaseItemDtos returned null");
-            }
-
             return new QueryResult<BaseItemDto>
             {
+                StartIndex = request.StartIndex.GetValueOrDefault(),
                 TotalRecordCount = result.TotalRecordCount,
                 Items = dtoList
             };
@@ -210,27 +199,41 @@ namespace MediaBrowser.Api.UserLibrary
                 item = _libraryManager.GetUserRootFolder();
             }
 
-            Folder folder = item as Folder;
-            if (folder == null)
+            if (!(item is Folder folder))
             {
                 folder = _libraryManager.GetUserRootFolder();
             }
 
-            var hasCollectionType = folder as IHasCollectionType;
-            if (hasCollectionType != null
+            if (folder is IHasCollectionType hasCollectionType
                 && string.Equals(hasCollectionType.CollectionType, CollectionType.Playlists, StringComparison.OrdinalIgnoreCase))
             {
                 request.Recursive = true;
                 request.IncludeItemTypes = "Playlist";
             }
 
-            if (!(item is UserRootFolder) && !user.Policy.EnableAllFolders && !user.Policy.EnabledFolders.Any(i => new Guid(i) == item.Id))
+            bool isInEnabledFolder = user.Policy.EnabledFolders.Any(i => new Guid(i) == item.Id)
+                    // Assume all folders inside an EnabledChannel are enabled
+                    || user.Policy.EnabledChannels.Any(i => new Guid(i) == item.Id);
+
+            var collectionFolders = _libraryManager.GetCollectionFolders(item);
+            foreach (var collectionFolder in collectionFolders)
+            {
+                if (user.Policy.EnabledFolders.Contains(
+                    collectionFolder.Id.ToString("N", CultureInfo.InvariantCulture),
+                    StringComparer.OrdinalIgnoreCase))
+                {
+                    isInEnabledFolder = true;
+                }
+            }
+
+            if (!(item is UserRootFolder) && !user.Policy.EnableAllFolders && !isInEnabledFolder && !user.Policy.EnableAllChannels)
             {
                 Logger.LogWarning("{UserName} is not permitted to access Library {ItemName}.", user.Name, item.Name);
                 return new QueryResult<BaseItem>
                 {
                     Items = Array.Empty<BaseItem>(),
-                    TotalRecordCount = 0
+                    TotalRecordCount = 0,
+                    StartIndex = 0
                 };
             }
 
@@ -239,11 +242,12 @@ namespace MediaBrowser.Api.UserLibrary
                 return folder.GetItems(GetItemsQuery(request, dtoOptions, user));
             }
 
-            var itemsArray = folder.GetChildren(user, true).ToArray();
+            var itemsArray = folder.GetChildren(user, true);
             return new QueryResult<BaseItem>
             {
                 Items = itemsArray,
-                TotalRecordCount = itemsArray.Length
+                TotalRecordCount = itemsArray.Count,
+                StartIndex = 0
             };
         }
 
@@ -448,9 +452,7 @@ namespace MediaBrowser.Api.UserLibrary
                         IncludeItemTypes = new[] { typeof(MusicAlbum).Name },
                         Name = i,
                         Limit = 1
-
-                    }).Select(albumId => albumId);
-
+                    });
                 }).ToArray();
             }
 
@@ -471,7 +473,7 @@ namespace MediaBrowser.Api.UserLibrary
             }
 
             // Apply default sorting if none requested
-            if (query.OrderBy.Length == 0)
+            if (query.OrderBy.Count == 0)
             {
                 // Albums by artist
                 if (query.ArtistIds.Length > 0 && query.IncludeItemTypes.Length == 1 && string.Equals(query.IncludeItemTypes[0], "MusicAlbum", StringComparison.OrdinalIgnoreCase))

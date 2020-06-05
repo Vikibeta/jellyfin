@@ -8,12 +8,12 @@ using Microsoft.Extensions.Logging;
 namespace Emby.Server.Implementations.Library.Validators
 {
     /// <summary>
-    /// Class MusicGenresPostScanTask
+    /// Class MusicGenresPostScanTask.
     /// </summary>
     public class StudiosPostScanTask : ILibraryPostScanTask
     {
         /// <summary>
-        /// The _library manager
+        /// The _library manager.
         /// </summary>
         private readonly ILibraryManager _libraryManager;
 
@@ -21,10 +21,15 @@ namespace Emby.Server.Implementations.Library.Validators
         private readonly IItemRepository _itemRepo;
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="ArtistsPostScanTask" /> class.
+        /// Initializes a new instance of the <see cref="StudiosPostScanTask" /> class.
         /// </summary>
         /// <param name="libraryManager">The library manager.</param>
-        public StudiosPostScanTask(ILibraryManager libraryManager, ILogger logger, IItemRepository itemRepo)
+        /// <param name="logger">The logger.</param>
+        /// <param name="itemRepo">The item repository.</param>
+        public StudiosPostScanTask(
+            ILibraryManager libraryManager,
+            ILogger<StudiosPostScanTask> logger,
+            IItemRepository itemRepo)
         {
             _libraryManager = libraryManager;
             _logger = logger;

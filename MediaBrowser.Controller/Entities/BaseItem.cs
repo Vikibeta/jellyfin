@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Common.Extensions;
@@ -14,18 +15,15 @@ using MediaBrowser.Controller.Extensions;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Controller.Providers;
-using MediaBrowser.Controller.Sorting;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
-using MediaBrowser.Model.Extensions;
 using MediaBrowser.Model.Globalization;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Library;
 using MediaBrowser.Model.LiveTv;
 using MediaBrowser.Model.MediaInfo;
 using MediaBrowser.Model.Providers;
-using MediaBrowser.Model.Serialization;
 using MediaBrowser.Model.Users;
 using Microsoft.Extensions.Logging;
 
@@ -34,13 +32,13 @@ namespace MediaBrowser.Controller.Entities
     /// <summary>
     /// Class BaseItem
     /// </summary>
-    public abstract class BaseItem : IHasProviderIds, IHasLookupInfo<ItemLookupInfo>
+    public abstract class BaseItem : IHasProviderIds, IHasLookupInfo<ItemLookupInfo>, IEquatable<BaseItem>
     {
         /// <summary>
         /// The supported image extensions
         /// </summary>
         public static readonly string[] SupportedImageExtensions
-            = new [] { ".png", ".jpg", ".jpeg", ".tbn", ".gif" };
+            = new[] { ".png", ".jpg", ".jpeg", ".tbn", ".gif" };
 
         private static readonly List<string> _supportedExtensions = new List<string>(SupportedImageExtensions)
         {
@@ -98,62 +96,62 @@ namespace MediaBrowser.Controller.Entities
             SampleFolderName
         };
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public Guid[] ThemeSongIds { get; set; }
-        [IgnoreDataMember]
+        [JsonIgnore]
         public Guid[] ThemeVideoIds { get; set; }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public string PreferredMetadataCountryCode { get; set; }
-        [IgnoreDataMember]
+        [JsonIgnore]
         public string PreferredMetadataLanguage { get; set; }
 
         public long? Size { get; set; }
         public string Container { get; set; }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public string Tagline { get; set; }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public virtual ItemImageInfo[] ImageInfos { get; set; }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public bool IsVirtualItem { get; set; }
 
         /// <summary>
         /// Gets or sets the album.
         /// </summary>
         /// <value>The album.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public string Album { get; set; }
 
         /// <summary>
         /// Gets or sets the channel identifier.
         /// </summary>
         /// <value>The channel identifier.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public Guid ChannelId { get; set; }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public virtual bool SupportsAddingToPlaylist => false;
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public virtual bool AlwaysScanInternalMetadataPath => false;
 
         /// <summary>
         /// Gets a value indicating whether this instance is in mixed folder.
         /// </summary>
         /// <value><c>true</c> if this instance is in mixed folder; otherwise, <c>false</c>.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public bool IsInMixedFolder { get; set; }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public virtual bool SupportsPlayedStatus => false;
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public virtual bool SupportsPositionTicksResume => false;
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public virtual bool SupportsRemoteImageDownloading => true;
 
         private string _name;
@@ -161,7 +159,7 @@ namespace MediaBrowser.Controller.Entities
         /// Gets or sets the name.
         /// </summary>
         /// <value>The name.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public virtual string Name
         {
             get => _name;
@@ -174,35 +172,36 @@ namespace MediaBrowser.Controller.Entities
             }
         }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public bool IsUnaired => PremiereDate.HasValue && PremiereDate.Value.ToLocalTime().Date >= DateTime.Now.Date;
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public int? TotalBitrate { get; set; }
-        [IgnoreDataMember]
+
+        [JsonIgnore]
         public ExtraType? ExtraType { get; set; }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public bool IsThemeMedia => ExtraType.HasValue && (ExtraType.Value == Model.Entities.ExtraType.ThemeSong || ExtraType.Value == Model.Entities.ExtraType.ThemeVideo);
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public string OriginalTitle { get; set; }
 
         /// <summary>
         /// Gets or sets the id.
         /// </summary>
         /// <value>The id.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public Guid Id { get; set; }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public Guid OwnerId { get; set; }
 
         /// <summary>
         /// Gets or sets the audio.
         /// </summary>
         /// <value>The audio.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public ProgramAudio? Audio { get; set; }
 
         /// <summary>
@@ -210,7 +209,7 @@ namespace MediaBrowser.Controller.Entities
         /// Default is based on the type for everything except actual generic folders.
         /// </summary>
         /// <value>The display prefs id.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public virtual Guid DisplayPreferencesId
         {
             get
@@ -224,10 +223,10 @@ namespace MediaBrowser.Controller.Entities
         /// Gets or sets the path.
         /// </summary>
         /// <value>The path.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public virtual string Path { get; set; }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public virtual SourceType SourceType
         {
             get
@@ -245,7 +244,7 @@ namespace MediaBrowser.Controller.Entities
         /// Returns the folder containing the item.
         /// If the item is a folder, it returns the folder itself
         /// </summary>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public virtual string ContainingFolderPath
         {
             get
@@ -263,26 +262,26 @@ namespace MediaBrowser.Controller.Entities
         /// Gets or sets the name of the service.
         /// </summary>
         /// <value>The name of the service.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public string ServiceName { get; set; }
 
         /// <summary>
         /// If this content came from an external service, the id of the content on that service
         /// </summary>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public string ExternalId { get; set; }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public string ExternalSeriesId { get; set; }
 
         /// <summary>
         /// Gets or sets the etag.
         /// </summary>
         /// <value>The etag.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public string ExternalEtag { get; set; }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public virtual bool IsHidden => false;
 
         public BaseItem GetOwner()
@@ -295,7 +294,7 @@ namespace MediaBrowser.Controller.Entities
         /// Gets or sets the type of the location.
         /// </summary>
         /// <value>The type of the location.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public virtual LocationType LocationType
         {
             get
@@ -320,7 +319,7 @@ namespace MediaBrowser.Controller.Entities
             }
         }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public MediaProtocol? PathProtocol
         {
             get
@@ -343,13 +342,13 @@ namespace MediaBrowser.Controller.Entities
             return current.HasValue && current.Value == protocol;
         }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public bool IsFileProtocol => IsPathProtocol(MediaProtocol.File);
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public bool HasPathProtocol => PathProtocol.HasValue;
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public virtual bool SupportsLocalMetadata
         {
             get
@@ -363,7 +362,7 @@ namespace MediaBrowser.Controller.Entities
             }
         }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public virtual string FileNameWithoutExtension
         {
             get
@@ -377,7 +376,7 @@ namespace MediaBrowser.Controller.Entities
             }
         }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public virtual bool EnableAlphaNumericSorting => true;
 
         private List<Tuple<StringBuilder, bool>> GetSortChunks(string s1)
@@ -388,15 +387,12 @@ namespace MediaBrowser.Controller.Entities
 
             while (thisMarker < s1.Length)
             {
-                if (thisMarker >= s1.Length)
-                {
-                    break;
-                }
                 char thisCh = s1[thisMarker];
 
                 var thisChunk = new StringBuilder();
+                bool isNumeric = char.IsDigit(thisCh);
 
-                while ((thisMarker < s1.Length) && (thisChunk.Length == 0 || SortHelper.InChunk(thisCh, thisChunk[0])))
+                while (thisMarker < s1.Length && char.IsDigit(thisCh) == isNumeric)
                 {
                     thisChunk.Append(thisCh);
                     thisMarker++;
@@ -407,7 +403,6 @@ namespace MediaBrowser.Controller.Entities
                     }
                 }
 
-                var isNumeric = thisChunk.Length > 0 && char.IsDigit(thisChunk[0]);
                 list.Add(new Tuple<StringBuilder, bool>(thisChunk, isNumeric));
             }
 
@@ -418,7 +413,7 @@ namespace MediaBrowser.Controller.Entities
         /// This is just a helper for convenience
         /// </summary>
         /// <value>The primary image path.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public string PrimaryImagePath => this.GetImagePath(ImageType.Primary);
 
         public bool IsMetadataFetcherEnabled(LibraryOptions libraryOptions, string name)
@@ -503,7 +498,7 @@ namespace MediaBrowser.Controller.Entities
 
                 foreach (var folder in collectionFolders)
                 {
-                    if (allowed.Contains(folder.Id.ToString("N"), StringComparer.OrdinalIgnoreCase))
+                    if (allowed.Contains(folder.Id.ToString("N", CultureInfo.InvariantCulture), StringComparer.OrdinalIgnoreCase))
                     {
                         return true;
                     }
@@ -544,20 +539,19 @@ namespace MediaBrowser.Controller.Entities
         /// Gets or sets the date created.
         /// </summary>
         /// <value>The date created.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public DateTime DateCreated { get; set; }
 
         /// <summary>
         /// Gets or sets the date modified.
         /// </summary>
         /// <value>The date modified.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public DateTime DateModified { get; set; }
 
-        [IgnoreDataMember]
         public DateTime DateLastSaved { get; set; }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public DateTime DateLastRefreshed { get; set; }
 
         /// <summary>
@@ -583,24 +577,24 @@ namespace MediaBrowser.Controller.Entities
             return Name;
         }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public bool IsLocked { get; set; }
 
         /// <summary>
         /// Gets or sets the locked fields.
         /// </summary>
         /// <value>The locked fields.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public MetadataFields[] LockedFields { get; set; }
 
         /// <summary>
         /// Gets the type of the media.
         /// </summary>
         /// <value>The type of the media.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public virtual string MediaType => null;
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public virtual string[] PhysicalLocations
         {
             get
@@ -619,7 +613,7 @@ namespace MediaBrowser.Controller.Entities
         /// Gets or sets the name of the forced sort.
         /// </summary>
         /// <value>The name of the forced sort.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public string ForcedSortName
         {
             get => _forcedSortName;
@@ -631,7 +625,7 @@ namespace MediaBrowser.Controller.Entities
         /// Gets the name of the sort.
         /// </summary>
         /// <value>The name of the sort.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public string SortName
         {
             get
@@ -664,10 +658,10 @@ namespace MediaBrowser.Controller.Entities
         {
             if (SourceType == SourceType.Channel)
             {
-                return System.IO.Path.Combine(basePath, "channels", ChannelId.ToString("N"), Id.ToString("N"));
+                return System.IO.Path.Combine(basePath, "channels", ChannelId.ToString("N", CultureInfo.InvariantCulture), Id.ToString("N", CultureInfo.InvariantCulture));
             }
 
-            var idString = Id.ToString("N");
+            var idString = Id.ToString("N", CultureInfo.InvariantCulture);
 
             basePath = System.IO.Path.Combine(basePath, "library");
 
@@ -744,7 +738,7 @@ namespace MediaBrowser.Controller.Entities
             return builder.ToString().RemoveDiacritics();
         }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public bool EnableMediaSourceDisplay
         {
             get
@@ -758,14 +752,14 @@ namespace MediaBrowser.Controller.Entities
             }
         }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public Guid ParentId { get; set; }
 
         /// <summary>
         /// Gets or sets the parent.
         /// </summary>
         /// <value>The parent.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public Folder Parent
         {
             get => GetParent() as Folder;
@@ -822,7 +816,7 @@ namespace MediaBrowser.Controller.Entities
             return null;
         }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public virtual Guid DisplayParentId
         {
             get
@@ -832,7 +826,7 @@ namespace MediaBrowser.Controller.Entities
             }
         }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public BaseItem DisplayParent
         {
             get
@@ -850,97 +844,97 @@ namespace MediaBrowser.Controller.Entities
         /// When the item first debuted. For movies this could be premiere date, episodes would be first aired
         /// </summary>
         /// <value>The premiere date.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public DateTime? PremiereDate { get; set; }
 
         /// <summary>
         /// Gets or sets the end date.
         /// </summary>
         /// <value>The end date.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public DateTime? EndDate { get; set; }
 
         /// <summary>
         /// Gets or sets the official rating.
         /// </summary>
         /// <value>The official rating.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public string OfficialRating { get; set; }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public int InheritedParentalRatingValue { get; set; }
 
         /// <summary>
         /// Gets or sets the critic rating.
         /// </summary>
         /// <value>The critic rating.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public float? CriticRating { get; set; }
 
         /// <summary>
         /// Gets or sets the custom rating.
         /// </summary>
         /// <value>The custom rating.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public string CustomRating { get; set; }
 
         /// <summary>
         /// Gets or sets the overview.
         /// </summary>
         /// <value>The overview.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public string Overview { get; set; }
 
         /// <summary>
         /// Gets or sets the studios.
         /// </summary>
         /// <value>The studios.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public string[] Studios { get; set; }
 
         /// <summary>
         /// Gets or sets the genres.
         /// </summary>
         /// <value>The genres.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public string[] Genres { get; set; }
 
         /// <summary>
         /// Gets or sets the tags.
         /// </summary>
         /// <value>The tags.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public string[] Tags { get; set; }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public string[] ProductionLocations { get; set; }
 
         /// <summary>
         /// Gets or sets the home page URL.
         /// </summary>
         /// <value>The home page URL.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public string HomePageUrl { get; set; }
 
         /// <summary>
         /// Gets or sets the community rating.
         /// </summary>
         /// <value>The community rating.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public float? CommunityRating { get; set; }
 
         /// <summary>
         /// Gets or sets the run time ticks.
         /// </summary>
         /// <value>The run time ticks.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public long? RunTimeTicks { get; set; }
 
         /// <summary>
         /// Gets or sets the production year.
         /// </summary>
         /// <value>The production year.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public int? ProductionYear { get; set; }
 
         /// <summary>
@@ -948,20 +942,20 @@ namespace MediaBrowser.Controller.Entities
         /// This could be episode number, album track number, etc.
         /// </summary>
         /// <value>The index number.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public int? IndexNumber { get; set; }
 
         /// <summary>
         /// For an episode this could be the season number, or for a song this could be the disc number.
         /// </summary>
         /// <value>The parent index number.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public int? ParentIndexNumber { get; set; }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public virtual bool HasLocalAlternateVersions => false;
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public string OfficialRatingForComparison
         {
             get
@@ -982,7 +976,7 @@ namespace MediaBrowser.Controller.Entities
             }
         }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public string CustomRatingForComparison
         {
             get
@@ -1095,9 +1089,10 @@ namespace MediaBrowser.Controller.Entities
 
             var info = new MediaSourceInfo
             {
-                Id = item.Id.ToString("N"),
+                Id = item.Id.ToString("N", CultureInfo.InvariantCulture),
                 Protocol = protocol ?? MediaProtocol.File,
                 MediaStreams = MediaSourceManager.GetMediaStreams(item.Id),
+                MediaAttachments = MediaSourceManager.GetMediaAttachments(item.Id),
                 Name = GetMediaSourceName(item),
                 Path = enablePathSubstitution ? GetMappedPath(item, item.Path, protocol) : item.Path,
                 RunTimeTicks = item.RunTimeTicks,
@@ -1113,7 +1108,7 @@ namespace MediaBrowser.Controller.Entities
 
             if (info.Protocol == MediaProtocol.File)
             {
-                info.ETag = item.DateModified.Ticks.ToString(CultureInfo.InvariantCulture).GetMD5().ToString("N");
+                info.ETag = item.DateModified.Ticks.ToString(CultureInfo.InvariantCulture).GetMD5().ToString("N", CultureInfo.InvariantCulture);
             }
 
             var video = item as Video;
@@ -1330,8 +1325,9 @@ namespace MediaBrowser.Controller.Entities
                         }
 
                         // Use some hackery to get the extra type based on foldername
-                        Enum.TryParse(extraFolderName.Replace(" ", ""), true, out ExtraType extraType);
-                        item.ExtraType = extraType;
+                        item.ExtraType = Enum.TryParse(extraFolderName.Replace(" ", string.Empty), true, out ExtraType extraType)
+                            ? extraType
+                            : Model.Entities.ExtraType.Unknown;
 
                         return item;
 
@@ -1344,7 +1340,7 @@ namespace MediaBrowser.Controller.Entities
 
         public Task RefreshMetadata(CancellationToken cancellationToken)
         {
-            return RefreshMetadata(new MetadataRefreshOptions(new DirectoryService(Logger, FileSystem)), cancellationToken);
+            return RefreshMetadata(new MetadataRefreshOptions(new DirectoryService(FileSystem)), cancellationToken);
         }
 
         protected virtual void TriggerOnRefreshStart()
@@ -1378,6 +1374,7 @@ namespace MediaBrowser.Controller.Entities
                         new List<FileSystemMetadata>();
 
                     var ownedItemsChanged = await RefreshedOwnedItems(options, files, cancellationToken).ConfigureAwait(false);
+                    LibraryManager.UpdateImages(this); // ensure all image properties in DB are fresh
 
                     if (ownedItemsChanged)
                     {
@@ -1407,13 +1404,13 @@ namespace MediaBrowser.Controller.Entities
             }
         }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         protected virtual bool SupportsOwnedItems => !ParentId.Equals(Guid.Empty) && IsFileProtocol;
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public virtual bool SupportsPeople => false;
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public virtual bool SupportsThemeMedia => false;
 
         /// <summary>
@@ -1613,10 +1610,10 @@ namespace MediaBrowser.Controller.Entities
         /// Gets or sets the provider ids.
         /// </summary>
         /// <value>The provider ids.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public Dictionary<string, string> ProviderIds { get; set; }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public virtual Folder LatestItemsIndexContainer => null;
 
         public virtual double GetDefaultPrimaryImageAspectRatio()
@@ -1626,10 +1623,10 @@ namespace MediaBrowser.Controller.Entities
 
         public virtual string CreatePresentationUniqueKey()
         {
-            return Id.ToString("N");
+            return Id.ToString("N", CultureInfo.InvariantCulture);
         }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public string PresentationUniqueKey { get; set; }
 
         public string GetPresentationUniqueKey()
@@ -1934,7 +1931,7 @@ namespace MediaBrowser.Controller.Entities
             return IsVisibleStandaloneInternal(user, true);
         }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public virtual bool SupportsInheritedParentImages => false;
 
         protected bool IsVisibleStandaloneInternal(User user, bool checkFolders)
@@ -1977,10 +1974,10 @@ namespace MediaBrowser.Controller.Entities
         /// Gets a value indicating whether this instance is folder.
         /// </summary>
         /// <value><c>true</c> if this instance is folder; otherwise, <c>false</c>.</value>
-        [IgnoreDataMember]
+        [JsonIgnore]
         public virtual bool IsFolder => false;
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public virtual bool IsDisplayedAsFolder => false;
 
         public virtual string GetClientTypeName()
@@ -2045,7 +2042,7 @@ namespace MediaBrowser.Controller.Entities
 
                 if (itemByPath == null)
                 {
-                    //Logger.LogWarning("Unable to find linked item at path {0}", info.Path);
+                    Logger.LogWarning("Unable to find linked item at path {0}", info.Path);
                 }
 
                 return itemByPath;
@@ -2057,7 +2054,7 @@ namespace MediaBrowser.Controller.Entities
 
                 if (item == null)
                 {
-                    //Logger.LogWarning("Unable to find linked item at path {0}", info.Path);
+                    Logger.LogWarning("Unable to find linked item at path {0}", info.Path);
                 }
 
                 return item;
@@ -2066,7 +2063,7 @@ namespace MediaBrowser.Controller.Entities
             return null;
         }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public virtual bool EnableRememberingTrackSelections => true;
 
         /// <summary>
@@ -2085,14 +2082,17 @@ namespace MediaBrowser.Controller.Entities
 
             if (!current.Contains(name, StringComparer.OrdinalIgnoreCase))
             {
-                if (current.Length == 0)
+                int curLen = current.Length;
+                if (curLen == 0)
                 {
                     Studios = new[] { name };
                 }
                 else
                 {
-                    var list =
-                    Studios = current.Concat(new[] { name }).ToArray();
+                    var newArr = new string[curLen + 1];
+                    current.CopyTo(newArr, 0);
+                    newArr[curLen] = name;
+                    Studios = newArr;
                 }
             }
         }
@@ -2191,13 +2191,9 @@ namespace MediaBrowser.Controller.Entities
         /// <summary>
         /// Do whatever refreshing is necessary when the filesystem pertaining to this item has changed.
         /// </summary>
-        /// <returns>Task.</returns>
         public virtual void ChangedExternally()
         {
-            ProviderManager.QueueRefresh(Id, new MetadataRefreshOptions(new DirectoryService(Logger, FileSystem))
-            {
-
-            }, RefreshPriority.High);
+            ProviderManager.QueueRefresh(Id, new MetadataRefreshOptions(new DirectoryService(FileSystem)), RefreshPriority.High);
         }
 
         /// <summary>
@@ -2227,12 +2223,16 @@ namespace MediaBrowser.Controller.Entities
                 existingImage.DateModified = image.DateModified;
                 existingImage.Width = image.Width;
                 existingImage.Height = image.Height;
+                existingImage.BlurHash = image.BlurHash;
             }
-
             else
             {
-                var currentCount = ImageInfos.Length;
-                ImageInfos = ImageInfos.Concat(new[] { image }).ToArray();
+                var current = ImageInfos;
+                var currentCount = current.Length;
+                var newArr = new ItemImageInfo[currentCount + 1];
+                current.CopyTo(newArr, 0);
+                newArr[currentCount] = image;
+                ImageInfos = newArr;
             }
         }
 
@@ -2267,7 +2267,6 @@ namespace MediaBrowser.Controller.Entities
         /// </summary>
         /// <param name="type">The type.</param>
         /// <param name="index">The index.</param>
-        /// <returns>Task.</returns>
         public void DeleteImage(ImageType type, int index)
         {
             var info = GetImageInfo(type, index);
@@ -2305,7 +2304,7 @@ namespace MediaBrowser.Controller.Entities
         }
 
         /// <summary>
-        /// Validates that images within the item are still on the file system
+        /// Validates that images within the item are still on the filesystem.
         /// </summary>
         public bool ValidateImages(IDirectoryService directoryService)
         {
@@ -2374,6 +2373,46 @@ namespace MediaBrowser.Controller.Entities
 
             return GetImages(imageType)
                 .ElementAtOrDefault(imageIndex);
+        }
+
+        /// <summary>
+        /// Computes image index for given image or raises if no matching image found.
+        /// </summary>
+        /// <param name="image">Image to compute index for.</param>
+        /// <exception cref="ArgumentException">Image index cannot be computed as no matching image found.
+        /// </exception>
+        /// <returns>Image index.</returns>
+        public int GetImageIndex(ItemImageInfo image)
+        {
+            if (image == null)
+            {
+                throw new ArgumentNullException(nameof(image));
+            }
+
+            if (image.Type == ImageType.Chapter)
+            {
+                var chapters = ItemRepository.GetChapters(this);
+                for (var i = 0; i < chapters.Count; i++)
+                {
+                    if (chapters[i].ImagePath == image.Path)
+                    {
+                        return i;
+                    }
+                }
+
+                throw new ArgumentException("No chapter index found for image path", image.Path);
+            }
+
+            var images = GetImages(image.Type).ToArray();
+            for (var i = 0; i < images.Length; i++)
+            {
+                if (images[i].Path == image.Path)
+                {
+                    return i;
+                }
+            }
+
+            throw new ArgumentException("No image index found for image path", image.Path);
         }
 
         public IEnumerable<ItemImageInfo> GetImages(ImageType imageType)
@@ -2599,7 +2638,7 @@ namespace MediaBrowser.Controller.Entities
         }
 
         /// <summary>
-        /// This is called before any metadata refresh and returns true or false indicating if changes were made
+        /// This is called before any metadata refresh and returns true if changes were made.
         /// </summary>
         public virtual bool BeforeMetadataRefresh(bool replaceAllMetdata)
         {
@@ -2659,36 +2698,43 @@ namespace MediaBrowser.Controller.Entities
                     newOptions.ForceSave = true;
                     ownedItem.Genres = item.Genres;
                 }
+
                 if (!item.Studios.SequenceEqual(ownedItem.Studios, StringComparer.Ordinal))
                 {
                     newOptions.ForceSave = true;
                     ownedItem.Studios = item.Studios;
                 }
+
                 if (!item.ProductionLocations.SequenceEqual(ownedItem.ProductionLocations, StringComparer.Ordinal))
                 {
                     newOptions.ForceSave = true;
                     ownedItem.ProductionLocations = item.ProductionLocations;
                 }
+
                 if (item.CommunityRating != ownedItem.CommunityRating)
                 {
                     ownedItem.CommunityRating = item.CommunityRating;
                     newOptions.ForceSave = true;
                 }
+
                 if (item.CriticRating != ownedItem.CriticRating)
                 {
                     ownedItem.CriticRating = item.CriticRating;
                     newOptions.ForceSave = true;
                 }
+
                 if (!string.Equals(item.Overview, ownedItem.Overview, StringComparison.Ordinal))
                 {
                     ownedItem.Overview = item.Overview;
                     newOptions.ForceSave = true;
                 }
+
                 if (!string.Equals(item.OfficialRating, ownedItem.OfficialRating, StringComparison.Ordinal))
                 {
                     ownedItem.OfficialRating = item.OfficialRating;
                     newOptions.ForceSave = true;
                 }
+
                 if (!string.Equals(item.CustomRating, ownedItem.CustomRating, StringComparison.Ordinal))
                 {
                     ownedItem.CustomRating = item.CustomRating;
@@ -2736,7 +2782,7 @@ namespace MediaBrowser.Controller.Entities
         {
             var list = GetEtagValues(user);
 
-            return string.Join("|", list.ToArray()).GetMD5().ToString("N");
+            return string.Join("|", list).GetMD5().ToString("N", CultureInfo.InvariantCulture);
         }
 
         protected virtual List<string> GetEtagValues(User user)
@@ -2769,7 +2815,7 @@ namespace MediaBrowser.Controller.Entities
             return null;
         }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public virtual bool IsTopParent
         {
             get
@@ -2779,8 +2825,7 @@ namespace MediaBrowser.Controller.Entities
                     return true;
                 }
 
-                var view = this as IHasCollectionType;
-                if (view != null)
+                if (this is IHasCollectionType view)
                 {
                     if (string.Equals(view.CollectionType, CollectionType.LiveTv, StringComparison.OrdinalIgnoreCase))
                     {
@@ -2797,10 +2842,10 @@ namespace MediaBrowser.Controller.Entities
             }
         }
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public virtual bool SupportsAncestors => true;
 
-        [IgnoreDataMember]
+        [JsonIgnore]
         public virtual bool StopRefreshIfLocalMetadataFound => true;
 
         public virtual IEnumerable<Guid> GetIdsForAncestorQuery()
@@ -2871,37 +2916,84 @@ namespace MediaBrowser.Controller.Entities
         /// Gets or sets the remote trailers.
         /// </summary>
         /// <value>The remote trailers.</value>
-        public MediaUrl[] RemoteTrailers { get; set; }
+        public IReadOnlyList<MediaUrl> RemoteTrailers { get; set; }
 
+        /// <summary>
+        /// Get all extras associated with this item, sorted by <see cref="SortName"/>.
+        /// </summary>
+        /// <returns>An enumerable containing the items.</returns>
         public IEnumerable<BaseItem> GetExtras()
         {
-            return ExtraIds.Select(LibraryManager.GetItemById).Where(i => i != null).OrderBy(i => i.SortName);
+            return ExtraIds
+                .Select(LibraryManager.GetItemById)
+                .Where(i => i != null)
+                .OrderBy(i => i.SortName);
         }
 
-        public IEnumerable<BaseItem> GetExtras(ExtraType[] extraTypes)
+        /// <summary>
+        /// Get all extras with specific types that are associated with this item.
+        /// </summary>
+        /// <param name="extraTypes">The types of extras to retrieve.</param>
+        /// <returns>An enumerable containing the extras.</returns>
+        public IEnumerable<BaseItem> GetExtras(IReadOnlyCollection<ExtraType> extraTypes)
         {
-            return ExtraIds.Select(LibraryManager.GetItemById).Where(i => i != null && extraTypes.Contains(i.ExtraType.Value)).OrderBy(i => i.SortName);
+            return ExtraIds
+                .Select(LibraryManager.GetItemById)
+                .Where(i => i != null)
+                .Where(i => i.ExtraType.HasValue && extraTypes.Contains(i.ExtraType.Value));
         }
 
-        public IEnumerable<BaseItem> GetDisplayExtras()
+        public IEnumerable<BaseItem> GetTrailers()
         {
-            return GetExtras(DisplayExtraTypes);
+            if (this is IHasTrailers)
+                return ((IHasTrailers)this).LocalTrailerIds.Select(LibraryManager.GetItemById).Where(i => i != null).OrderBy(i => i.SortName);
+            else
+                return Array.Empty<BaseItem>();
         }
 
         public virtual bool IsHD => Height >= 720;
+
         public bool IsShortcut { get; set; }
+
         public string ShortcutPath { get; set; }
+
         public int Width { get; set; }
+
         public int Height { get; set; }
+
         public Guid[] ExtraIds { get; set; }
+
         public virtual long GetRunTimeTicksForPlayState()
         {
             return RunTimeTicks ?? 0;
         }
 
-        // Possible types of extra videos
-        public static ExtraType[] DisplayExtraTypes = new[] { Model.Entities.ExtraType.BehindTheScenes, Model.Entities.ExtraType.Clip, Model.Entities.ExtraType.DeletedScene, Model.Entities.ExtraType.Interview, Model.Entities.ExtraType.Sample, Model.Entities.ExtraType.Scene };
+        /// <summary>
+        /// Extra types that should be counted and displayed as "Special Features" in the UI.
+        /// </summary>
+        public static readonly IReadOnlyCollection<ExtraType> DisplayExtraTypes = new HashSet<ExtraType>
+        {
+            Model.Entities.ExtraType.Unknown,
+            Model.Entities.ExtraType.BehindTheScenes,
+            Model.Entities.ExtraType.Clip,
+            Model.Entities.ExtraType.DeletedScene,
+            Model.Entities.ExtraType.Interview,
+            Model.Entities.ExtraType.Sample,
+            Model.Entities.ExtraType.Scene
+        };
 
         public virtual bool SupportsExternalTransfer => false;
+
+        /// <inheritdoc />
+        public override bool Equals(object obj)
+        {
+            return obj is BaseItem baseItem && this.Equals(baseItem);
+        }
+
+        /// <inheritdoc />
+        public bool Equals(BaseItem item) => Object.Equals(Id, item?.Id);
+
+        /// <inheritdoc />
+        public override int GetHashCode() => HashCode.Combine(Id);
     }
 }

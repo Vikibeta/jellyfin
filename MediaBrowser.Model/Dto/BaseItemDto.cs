@@ -1,3 +1,6 @@
+#nullable disable
+#pragma warning disable CS1591
+
 using System;
 using System.Collections.Generic;
 using MediaBrowser.Model.Drawing;
@@ -234,7 +237,7 @@ namespace MediaBrowser.Model.Dto
         /// Gets or sets the trailer urls.
         /// </summary>
         /// <value>The trailer urls.</value>
-        public MediaUrl[] RemoteTrailers { get; set; }
+        public IReadOnlyCollection<MediaUrl> RemoteTrailers { get; set; }
 
         /// <summary>
         /// Gets or sets the provider ids.
@@ -386,7 +389,7 @@ namespace MediaBrowser.Model.Dto
         /// Gets or sets the artists.
         /// </summary>
         /// <value>The artists.</value>
-        public string[] Artists { get; set; }
+        public IReadOnlyList<string> Artists { get; set; }
 
         /// <summary>
         /// Gets or sets the artist items.
@@ -507,6 +510,13 @@ namespace MediaBrowser.Model.Dto
         /// </summary>
         /// <value>The series thumb image tag.</value>
         public string SeriesThumbImageTag { get; set; }
+
+        /// <summary>
+        /// Gets or sets the blurhashes for the image tags.
+        /// Maps image type to dictionary mapping image tag to blurhash value.
+        /// </summary>
+        /// <value>The blurhashes.</value>
+        public Dictionary<ImageType, Dictionary<string, string>> ImageBlurHashes { get; set; }
 
         /// <summary>
         /// Gets or sets the series studio.

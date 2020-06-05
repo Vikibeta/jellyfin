@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
@@ -130,7 +131,18 @@ namespace MediaBrowser.Api.Subtitles
         private readonly IFileSystem _fileSystem;
         private readonly IAuthorizationContext _authContext;
 
-        public SubtitleService(ILibraryManager libraryManager, ISubtitleManager subtitleManager, ISubtitleEncoder subtitleEncoder, IMediaSourceManager mediaSourceManager, IProviderManager providerManager, IFileSystem fileSystem, IAuthorizationContext authContext)
+        public SubtitleService(
+            ILogger<SubtitleService> logger,
+            IServerConfigurationManager serverConfigurationManager,
+            IHttpResultFactory httpResultFactory,
+            ILibraryManager libraryManager,
+            ISubtitleManager subtitleManager,
+            ISubtitleEncoder subtitleEncoder,
+            IMediaSourceManager mediaSourceManager,
+            IProviderManager providerManager,
+            IFileSystem fileSystem,
+            IAuthorizationContext authContext)
+            : base(logger, serverConfigurationManager, httpResultFactory)
         {
             _libraryManager = libraryManager;
             _subtitleManager = subtitleManager;
@@ -168,7 +180,7 @@ namespace MediaBrowser.Api.Subtitles
             builder.AppendLine("#EXT-X-MEDIA-SEQUENCE:0");
             builder.AppendLine("#EXT-X-PLAYLIST-TYPE:VOD");
 
-            long positionTicks = 0; 
+            long positionTicks = 0;
 
             var accessToken = _authContext.GetAuthorizationInfo(Request).Token;
 
@@ -206,7 +218,7 @@ namespace MediaBrowser.Api.Subtitles
             {
                 var item = (Video)_libraryManager.GetItemById(request.Id);
 
-                var idString = request.Id.ToString("N");
+                var idString = request.Id.ToString("N", CultureInfo.InvariantCulture);
                 var mediaSource = _mediaSourceManager.GetStaticMediaSources(item, false, null)
                     .First(i => string.Equals(i.Id, request.MediaSourceId ?? idString));
 
@@ -218,17 +230,14 @@ namespace MediaBrowser.Api.Subtitles
 
             if (string.Equals(request.Format, "vtt", StringComparison.OrdinalIgnoreCase) && request.AddVttTimeMap)
             {
-                using (var stream = await GetSubtitles(request).ConfigureAwait(false))
-                {
-                    using (var reader = new StreamReader(stream))
-                    {
-                        var text = reader.ReadToEnd();
+                using var stream = await GetSubtitles(request).ConfigureAwait(false);
+                using var reader = new StreamReader(stream);
 
-                        text = text.Replace("WEBVTT", "WEBVTT\nX-TIMESTAMP-MAP=MPEGTS:900000,LOCAL:00:00:00.000");
+                var text = reader.ReadToEnd();
 
-                        return ResultFactory.GetResult(Request, text, MimeTypes.GetMimeType("file." + request.Format));
-                    }
-                }
+                text = text.Replace("WEBVTT", "WEBVTT\nX-TIMESTAMP-MAP=MPEGTS:900000,LOCAL:00:00:00.000");
+
+                return ResultFactory.GetResult(Request, text, MimeTypes.GetMimeType("file." + request.Format));
             }
 
             return ResultFactory.GetResult(Request, await GetSubtitles(request).ConfigureAwait(false), MimeTypes.GetMimeType("file." + request.Format));
@@ -279,13 +288,12 @@ namespace MediaBrowser.Api.Subtitles
                     await _subtitleManager.DownloadSubtitles(video, request.SubtitleId, CancellationToken.None)
                         .ConfigureAwait(false);
 
-                    _providerManager.QueueRefresh(video.Id, new MetadataRefreshOptions(new DirectoryService(Logger, _fileSystem)), RefreshPriority.High);
+                    _providerManager.QueueRefresh(video.Id, new MetadataRefreshOptions(new DirectoryService(_fileSystem)), RefreshPriority.High);
                 }
                 catch (Exception ex)
                 {
                     Logger.LogError(ex, "Error downloading subtitles");
                 }
-
             });
         }
     }

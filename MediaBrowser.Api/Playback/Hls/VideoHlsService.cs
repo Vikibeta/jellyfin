@@ -12,6 +12,7 @@ using MediaBrowser.Model.Dlna;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Serialization;
 using MediaBrowser.Model.Services;
+using Microsoft.Extensions.Logging;
 
 namespace MediaBrowser.Api.Playback.Hls
 {
@@ -26,6 +27,39 @@ namespace MediaBrowser.Api.Playback.Hls
     [Authenticated]
     public class VideoHlsService : BaseHlsService
     {
+        public VideoHlsService(
+            ILogger<VideoHlsService> logger,
+            IServerConfigurationManager serverConfigurationManager,
+            IHttpResultFactory httpResultFactory,
+            IUserManager userManager,
+            ILibraryManager libraryManager,
+            IIsoManager isoManager,
+            IMediaEncoder mediaEncoder,
+            IFileSystem fileSystem,
+            IDlnaManager dlnaManager,
+            IDeviceManager deviceManager,
+            IMediaSourceManager mediaSourceManager,
+            IJsonSerializer jsonSerializer,
+            IAuthorizationContext authorizationContext,
+            EncodingHelper encodingHelper)
+            : base(
+                logger,
+                serverConfigurationManager,
+                httpResultFactory,
+                userManager,
+                libraryManager,
+                isoManager,
+                mediaEncoder,
+                fileSystem,
+                dlnaManager,
+                deviceManager,
+                mediaSourceManager,
+                jsonSerializer,
+                authorizationContext,
+                encodingHelper)
+        {
+        }
+
         public Task<object> Get(GetLiveHlsStream request)
         {
             return ProcessRequestAsync(request, true);
@@ -38,7 +72,7 @@ namespace MediaBrowser.Api.Playback.Hls
         {
             var codec = EncodingHelper.GetAudioEncoder(state);
 
-            if (string.Equals(codec, "copy", StringComparison.OrdinalIgnoreCase))
+            if (EncodingHelper.IsCopyCodec(codec))
             {
                 return "-codec:a:0 copy";
             }
@@ -92,10 +126,14 @@ namespace MediaBrowser.Api.Playback.Hls
             if (codec.Equals("copy", StringComparison.OrdinalIgnoreCase))
             {
                 // if h264_mp4toannexb is ever added, do not use it for live tv
-                if (state.VideoStream != null && EncodingHelper.IsH264(state.VideoStream) &&
+                if (state.VideoStream != null &&
                     !string.Equals(state.VideoStream.NalLengthSize, "0", StringComparison.OrdinalIgnoreCase))
                 {
-                    args += " -bsf:v h264_mp4toannexb";
+                    string bitStreamArgs = EncodingHelper.GetBitStreamArgs(state.VideoStream);
+                    if (!string.IsNullOrEmpty(bitStreamArgs))
+                    {
+                        args += " " + bitStreamArgs;
+                    }
                 }
             }
             else
@@ -105,7 +143,7 @@ namespace MediaBrowser.Api.Playback.Hls
 
                 var hasGraphicalSubs = state.SubtitleStream != null && !state.SubtitleStream.IsTextSubtitleStream && state.SubtitleDeliveryMethod == SubtitleDeliveryMethod.Encode;
 
-                args += " " + EncodingHelper.GetVideoQualityParam(state, codec, encodingOptions, GetDefaultH264Preset()) + keyFrameArg;
+                args += " " + EncodingHelper.GetVideoQualityParam(state, codec, encodingOptions, GetDefaultEncoderPreset()) + keyFrameArg;
 
                 // Add resolution params, if specified
                 if (!hasGraphicalSubs)
@@ -130,34 +168,6 @@ namespace MediaBrowser.Api.Playback.Hls
             args += EncodingHelper.GetOutputFFlags(state);
 
             return args;
-        }
-
-        public VideoHlsService(
-            IServerConfigurationManager serverConfig,
-            IUserManager userManager,
-            ILibraryManager libraryManager,
-            IIsoManager isoManager,
-            IMediaEncoder mediaEncoder,
-            IFileSystem fileSystem,
-            IDlnaManager dlnaManager,
-            ISubtitleEncoder subtitleEncoder,
-            IDeviceManager deviceManager,
-            IMediaSourceManager mediaSourceManager,
-            IJsonSerializer jsonSerializer,
-            IAuthorizationContext authorizationContext)
-                : base(serverConfig,
-                    userManager,
-                    libraryManager,
-                    isoManager,
-                    mediaEncoder,
-                    fileSystem,
-                    dlnaManager,
-                    subtitleEncoder,
-                    deviceManager,
-                    mediaSourceManager,
-                    jsonSerializer,
-                    authorizationContext)
-        {
         }
     }
 }

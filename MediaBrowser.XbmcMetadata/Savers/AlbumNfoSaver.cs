@@ -13,28 +13,44 @@ using Microsoft.Extensions.Logging;
 
 namespace MediaBrowser.XbmcMetadata.Savers
 {
+    /// <summary>
+    /// Nfo saver for albums.
+    /// </summary>
     public class AlbumNfoSaver : BaseNfoSaver
     {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="AlbumNfoSaver"/> class.
+        /// </summary>
+        /// <param name="fileSystem">The file system.</param>
+        /// <param name="configurationManager">the server configuration manager.</param>
+        /// <param name="libraryManager">The library manager.</param>
+        /// <param name="userManager">The user manager.</param>
+        /// <param name="userDataManager">The user data manager.</param>
+        /// <param name="logger">The logger.</param>
+        public AlbumNfoSaver(
+            IFileSystem fileSystem,
+            IServerConfigurationManager configurationManager,
+            ILibraryManager libraryManager,
+            IUserManager userManager,
+            IUserDataManager userDataManager,
+            ILogger<AlbumNfoSaver> logger)
+            : base(fileSystem, configurationManager, libraryManager, userManager, userDataManager, logger)
+        {
+        }
+
+        /// <inheritdoc />
         protected override string GetLocalSavePath(BaseItem item)
-        {
-            return Path.Combine(item.Path, "album.nfo");
-        }
+            => Path.Combine(item.Path, "album.nfo");
 
+        /// <inheritdoc />
         protected override string GetRootElementName(BaseItem item)
-        {
-            return "album";
-        }
+            => "album";
 
+        /// <inheritdoc />
         public override bool IsEnabledFor(BaseItem item, ItemUpdateType updateType)
-        {
-            if (!item.SupportsLocalMetadata)
-            {
-                return false;
-            }
+            => item.SupportsLocalMetadata && item is MusicAlbum && updateType >= MinimumUpdateType;
 
-            return item is MusicAlbum && updateType >= MinimumUpdateType;
-        }
-
+        /// <inheritdoc />
         protected override void WriteCustomElements(BaseItem item, XmlWriter writer)
         {
             var album = (MusicAlbum)item;
@@ -52,8 +68,6 @@ namespace MediaBrowser.XbmcMetadata.Savers
             AddTracks(album.Tracks, writer);
         }
 
-        private readonly CultureInfo UsCulture = new CultureInfo("en-US");
-
         private void AddTracks(IEnumerable<BaseItem> tracks, XmlWriter writer)
         {
             foreach (var track in tracks.OrderBy(i => i.ParentIndexNumber ?? 0).ThenBy(i => i.IndexNumber ?? 0))
@@ -62,7 +76,7 @@ namespace MediaBrowser.XbmcMetadata.Savers
 
                 if (track.IndexNumber.HasValue)
                 {
-                    writer.WriteElementString("position", track.IndexNumber.Value.ToString(UsCulture));
+                    writer.WriteElementString("position", track.IndexNumber.Value.ToString(CultureInfo.InvariantCulture));
                 }
 
                 if (!string.IsNullOrEmpty(track.Name))
@@ -72,7 +86,7 @@ namespace MediaBrowser.XbmcMetadata.Savers
 
                 if (track.RunTimeTicks.HasValue)
                 {
-                    var time = TimeSpan.FromTicks(track.RunTimeTicks.Value).ToString(@"mm\:ss");
+                    var time = TimeSpan.FromTicks(track.RunTimeTicks.Value).ToString(@"mm\:ss", CultureInfo.InvariantCulture);
 
                     writer.WriteElementString("duration", time);
                 }
@@ -81,21 +95,19 @@ namespace MediaBrowser.XbmcMetadata.Savers
             }
         }
 
+        /// <inheritdoc />
         protected override List<string> GetTagsUsed(BaseItem item)
         {
             var list = base.GetTagsUsed(item);
-            list.AddRange(new string[]
-            {
-                "track",
-                "artist",
-                "albumartist"
-            });
-            return list;
-        }
+            list.AddRange(
+                new string[]
+                {
+                    "track",
+                    "artist",
+                    "albumartist"
+                });
 
-        public AlbumNfoSaver(IFileSystem fileSystem, IServerConfigurationManager configurationManager, ILibraryManager libraryManager, IUserManager userManager, IUserDataManager userDataManager, ILogger logger)
-            : base(fileSystem, configurationManager, libraryManager, userManager, userDataManager, logger)
-        {
+            return list;
         }
     }
 }

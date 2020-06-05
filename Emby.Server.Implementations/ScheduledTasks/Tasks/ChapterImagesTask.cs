@@ -15,20 +15,22 @@ using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
+using MediaBrowser.Model.Globalization;
 
 namespace Emby.Server.Implementations.ScheduledTasks
 {
     /// <summary>
-    /// Class ChapterImagesTask
+    /// Class ChapterImagesTask.
     /// </summary>
     public class ChapterImagesTask : IScheduledTask
     {
         /// <summary>
-        /// The _logger
+        /// The _logger.
         /// </summary>
         private readonly ILogger _logger;
+
         /// <summary>
-        /// The _library manager
+        /// The _library manager.
         /// </summary>
         private readonly ILibraryManager _libraryManager;
 
@@ -38,11 +40,19 @@ namespace Emby.Server.Implementations.ScheduledTasks
 
         private readonly IEncodingManager _encodingManager;
         private readonly IFileSystem _fileSystem;
+        private readonly ILocalizationManager _localization;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="ChapterImagesTask" /> class.
         /// </summary>
-        public ChapterImagesTask(ILoggerFactory loggerFactory, ILibraryManager libraryManager, IItemRepository itemRepo, IApplicationPaths appPaths, IEncodingManager encodingManager, IFileSystem fileSystem)
+        public ChapterImagesTask(
+            ILoggerFactory loggerFactory,
+            ILibraryManager libraryManager,
+            IItemRepository itemRepo,
+            IApplicationPaths appPaths,
+            IEncodingManager encodingManager,
+            IFileSystem fileSystem,
+            ILocalizationManager localization)
         {
             _logger = loggerFactory.CreateLogger(GetType().Name);
             _libraryManager = libraryManager;
@@ -50,15 +60,16 @@ namespace Emby.Server.Implementations.ScheduledTasks
             _appPaths = appPaths;
             _encodingManager = encodingManager;
             _fileSystem = fileSystem;
+            _localization = localization;
         }
 
         /// <summary>
-        /// Creates the triggers that define when the task will run
+        /// Creates the triggers that define when the task will run.
         /// </summary>
         public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
         {
-            return new[] {
-
+            return new[]
+            {
                 new TaskTriggerInfo
                 {
                     Type = TaskTriggerInfo.TriggerDaily,
@@ -69,7 +80,7 @@ namespace Emby.Server.Implementations.ScheduledTasks
         }
 
         /// <summary>
-        /// Returns the task to be executed
+        /// Returns the task to be executed.
         /// </summary>
         /// <param name="cancellationToken">The cancellation token.</param>
         /// <param name="progress">The progress.</param>
@@ -88,7 +99,6 @@ namespace Emby.Server.Implementations.ScheduledTasks
                 SourceTypes = new SourceType[] { SourceType.Library },
                 HasChapterImages = false,
                 IsVirtualItem = false
-
             })
                 .OfType<Video>()
                 .ToList();
@@ -117,7 +127,7 @@ namespace Emby.Server.Implementations.ScheduledTasks
                 previouslyFailedImages = new List<string>();
             }
 
-            var directoryService = new DirectoryService(_logger, _fileSystem);
+            var directoryService = new DirectoryService(_fileSystem);
 
             foreach (var video in videos)
             {
@@ -159,18 +169,25 @@ namespace Emby.Server.Implementations.ScheduledTasks
             }
         }
 
-        public string Name => "Chapter image extraction";
+        /// <inheritdoc />
+        public string Name => _localization.GetLocalizedString("TaskRefreshChapterImages");
 
-        public string Description => "Creates thumbnails for videos that have chapters.";
+        /// <inheritdoc />
+        public string Description => _localization.GetLocalizedString("TaskRefreshChapterImagesDescription");
 
-        public string Category => "Library";
+        /// <inheritdoc />
+        public string Category => _localization.GetLocalizedString("TasksLibraryCategory");
 
+        /// <inheritdoc />
         public string Key => "RefreshChapterImages";
 
+        /// <inheritdoc />
         public bool IsHidden => false;
 
+        /// <inheritdoc />
         public bool IsEnabled => true;
 
+        /// <inheritdoc />
         public bool IsLogged => true;
     }
 }

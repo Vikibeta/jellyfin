@@ -20,7 +20,7 @@ namespace MediaBrowser.Providers.MediaInfo
         private readonly ILogger _logger;
         private readonly IFileSystem _fileSystem;
 
-        public VideoImageProvider(IMediaEncoder mediaEncoder, ILogger logger, IFileSystem fileSystem)
+        public VideoImageProvider(IMediaEncoder mediaEncoder, ILogger<VideoImageProvider> logger, IFileSystem fileSystem)
         {
             _mediaEncoder = mediaEncoder;
             _logger = logger;
@@ -62,7 +62,11 @@ namespace MediaBrowser.Providers.MediaInfo
         {
             var protocol = item.PathProtocol ?? MediaProtocol.File;
 
-            var inputPath = MediaEncoderHelpers.GetInputArgument(_fileSystem, item.Path, protocol, null, item.GetPlayableStreamFileNames(_mediaEncoder));
+            var inputPath = MediaEncoderHelpers.GetInputArgument(
+                _fileSystem,
+                item.Path,
+                null,
+                item.GetPlayableStreamFileNames());
 
             var mediaStreams =
                 item.GetMediaStreams();

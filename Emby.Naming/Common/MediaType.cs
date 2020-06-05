@@ -1,3 +1,5 @@
+#pragma warning disable CS1591
+
 namespace Emby.Naming.Common
 {
     public enum MediaType

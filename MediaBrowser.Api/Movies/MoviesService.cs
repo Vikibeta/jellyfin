@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Configuration;
@@ -11,9 +12,9 @@ using MediaBrowser.Controller.LiveTv;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
-using MediaBrowser.Model.Extensions;
 using MediaBrowser.Model.Querying;
 using MediaBrowser.Model.Services;
+using Microsoft.Extensions.Logging;
 
 namespace MediaBrowser.Api.Movies
 {
@@ -75,18 +76,24 @@ namespace MediaBrowser.Api.Movies
         private readonly ILibraryManager _libraryManager;
 
         private readonly IDtoService _dtoService;
-        private readonly IServerConfigurationManager _config;
         private readonly IAuthorizationContext _authContext;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="MoviesService" /> class.
         /// </summary>
-        public MoviesService(IUserManager userManager, ILibraryManager libraryManager, IDtoService dtoService, IServerConfigurationManager config, IAuthorizationContext authContext)
+        public MoviesService(
+            ILogger<MoviesService> logger,
+            IServerConfigurationManager serverConfigurationManager,
+            IHttpResultFactory httpResultFactory,
+            IUserManager userManager,
+            ILibraryManager libraryManager,
+            IDtoService dtoService,
+            IAuthorizationContext authContext)
+            : base(logger, serverConfigurationManager, httpResultFactory)
         {
             _userManager = userManager;
             _libraryManager = libraryManager;
             _dtoService = dtoService;
-            _config = config;
             _authContext = authContext;
         }
 
@@ -110,7 +117,7 @@ namespace MediaBrowser.Api.Movies
                 _libraryManager.RootFolder) : _libraryManager.GetItemById(request.Id);
 
             var itemTypes = new List<string> { typeof(Movie).Name };
-            if (_config.Configuration.EnableExternalContentInSuggestions)
+            if (ServerConfigurationManager.Configuration.EnableExternalContentInSuggestions)
             {
                 itemTypes.Add(typeof(Trailer).Name);
                 itemTypes.Add(typeof(LiveTvProgram).Name);
@@ -167,7 +174,7 @@ namespace MediaBrowser.Api.Movies
             var recentlyPlayedMovies = _libraryManager.GetItemList(query);
 
             var itemTypes = new List<string> { typeof(Movie).Name };
-            if (_config.Configuration.EnableExternalContentInSuggestions)
+            if (ServerConfigurationManager.Configuration.EnableExternalContentInSuggestions)
             {
                 itemTypes.Add(typeof(Trailer).Name);
                 itemTypes.Add(typeof(LiveTvProgram).Name);
@@ -191,12 +198,10 @@ namespace MediaBrowser.Api.Movies
             var mostRecentMovies = recentlyPlayedMovies.Take(6).ToList();
             // Get recently played directors
             var recentDirectors = GetDirectors(mostRecentMovies)
-                .OrderBy(i => Guid.NewGuid())
                 .ToList();
 
             // Get recently played actors
             var recentActors = GetActors(mostRecentMovies)
-                .OrderBy(i => Guid.NewGuid())
                 .ToList();
 
             var similarToRecentlyPlayed = GetSimilarTo(user, recentlyPlayedMovies, itemLimit, dtoOptions, RecommendationType.SimilarToRecentlyPlayed).GetEnumerator();
@@ -243,13 +248,13 @@ namespace MediaBrowser.Api.Movies
                 }
             }
 
-            return categories.OrderBy(i => i.RecommendationType).ThenBy(i => Guid.NewGuid());
+            return categories.OrderBy(i => i.RecommendationType);
         }
 
         private IEnumerable<RecommendationDto> GetWithDirector(User user, IEnumerable<string> names, int itemLimit, DtoOptions dtoOptions, RecommendationType type)
         {
             var itemTypes = new List<string> { typeof(Movie).Name };
-            if (_config.Configuration.EnableExternalContentInSuggestions)
+            if (ServerConfigurationManager.Configuration.EnableExternalContentInSuggestions)
             {
                 itemTypes.Add(typeof(Trailer).Name);
                 itemTypes.Add(typeof(LiveTvProgram).Name);
@@ -268,7 +273,7 @@ namespace MediaBrowser.Api.Movies
                     EnableGroupByMetadataKey = true,
                     DtoOptions = dtoOptions
 
-                }).GroupBy(i => i.GetProviderId(MetadataProviders.Imdb) ?? Guid.NewGuid().ToString("N"))
+                }).GroupBy(i => i.GetProviderId(MetadataProviders.Imdb) ?? Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture))
                 .Select(x => x.First())
                 .Take(itemLimit)
                 .ToList();
@@ -291,7 +296,7 @@ namespace MediaBrowser.Api.Movies
         private IEnumerable<RecommendationDto> GetWithActor(User user, IEnumerable<string> names, int itemLimit, DtoOptions dtoOptions, RecommendationType type)
         {
             var itemTypes = new List<string> { typeof(Movie).Name };
-            if (_config.Configuration.EnableExternalContentInSuggestions)
+            if (ServerConfigurationManager.Configuration.EnableExternalContentInSuggestions)
             {
                 itemTypes.Add(typeof(Trailer).Name);
                 itemTypes.Add(typeof(LiveTvProgram).Name);
@@ -309,7 +314,7 @@ namespace MediaBrowser.Api.Movies
                     EnableGroupByMetadataKey = true,
                     DtoOptions = dtoOptions
 
-                }).GroupBy(i => i.GetProviderId(MetadataProviders.Imdb) ?? Guid.NewGuid().ToString("N"))
+                }).GroupBy(i => i.GetProviderId(MetadataProviders.Imdb) ?? Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture))
                 .Select(x => x.First())
                 .Take(itemLimit)
                 .ToList();
@@ -332,7 +337,7 @@ namespace MediaBrowser.Api.Movies
         private IEnumerable<RecommendationDto> GetSimilarTo(User user, List<BaseItem> baselineItems, int itemLimit, DtoOptions dtoOptions, RecommendationType type)
         {
             var itemTypes = new List<string> { typeof(Movie).Name };
-            if (_config.Configuration.EnableExternalContentInSuggestions)
+            if (ServerConfigurationManager.Configuration.EnableExternalContentInSuggestions)
             {
                 itemTypes.Add(typeof(Trailer).Name);
                 itemTypes.Add(typeof(LiveTvProgram).Name);
@@ -389,7 +394,7 @@ namespace MediaBrowser.Api.Movies
         {
             var people = _libraryManager.GetPeople(new InternalPeopleQuery
             {
-                PersonTypes = new string[]
+                PersonTypes = new[]
                 {
                     PersonType.Director
                 }

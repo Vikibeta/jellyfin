@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller;
-using MediaBrowser.Controller.Dto;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Net;
@@ -16,6 +16,7 @@ using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Providers;
 using MediaBrowser.Model.Services;
+using Microsoft.Extensions.Logging;
 
 namespace MediaBrowser.Api.Images
 {
@@ -108,13 +109,20 @@ namespace MediaBrowser.Api.Images
         private readonly IHttpClient _httpClient;
         private readonly IFileSystem _fileSystem;
 
-        private readonly IDtoService _dtoService;
         private readonly ILibraryManager _libraryManager;
 
-        public RemoteImageService(IProviderManager providerManager, IDtoService dtoService, IServerApplicationPaths appPaths, IHttpClient httpClient, IFileSystem fileSystem, ILibraryManager libraryManager)
+        public RemoteImageService(
+            ILogger<RemoteImageService> logger,
+            IServerConfigurationManager serverConfigurationManager,
+            IHttpResultFactory httpResultFactory,
+            IProviderManager providerManager,
+            IServerApplicationPaths appPaths,
+            IHttpClient httpClient,
+            IFileSystem fileSystem,
+            ILibraryManager libraryManager)
+            : base(logger, serverConfigurationManager, httpResultFactory)
         {
             _providerManager = providerManager;
-            _dtoService = dtoService;
             _appPaths = appPaths;
             _httpClient = httpClient;
             _fileSystem = fileSystem;
@@ -139,9 +147,8 @@ namespace MediaBrowser.Api.Images
         {
             var item = _libraryManager.GetItemById(request.Id);
 
-            var images = await _providerManager.GetAvailableRemoteImages(item, new RemoteImageQuery
+            var images = await _providerManager.GetAvailableRemoteImages(item, new RemoteImageQuery(request.ProviderName)
             {
-                ProviderName = request.ProviderName,
                 IncludeAllLanguages = request.IncludeAllLanguages,
                 IncludeDisabledProviders = true,
                 ImageType = request.Type
@@ -253,29 +260,28 @@ namespace MediaBrowser.Api.Images
         /// <returns>Task.</returns>
         private async Task DownloadImage(string url, Guid urlHash, string pointerCachePath)
         {
-            using (var result = await _httpClient.GetResponse(new HttpRequestOptions
+            using var result = await _httpClient.GetResponse(new HttpRequestOptions
             {
                 Url = url,
                 BufferContent = false
+            }).ConfigureAwait(false);
+            var ext = result.ContentType.Split('/')[^1];
 
-            }).ConfigureAwait(false))
+            var fullCachePath = GetFullCachePath(urlHash + "." + ext);
+
+            Directory.CreateDirectory(Path.GetDirectoryName(fullCachePath));
+            var stream = result.Content;
+            await using (stream.ConfigureAwait(false))
             {
-                var ext = result.ContentType.Split('/').Last();
-
-                var fullCachePath = GetFullCachePath(urlHash + "." + ext);
-
-                Directory.CreateDirectory(Path.GetDirectoryName(fullCachePath));
-                using (var stream = result.Content)
+                var filestream = new FileStream(fullCachePath, FileMode.Create, FileAccess.Write, FileShare.Read, IODefaults.FileStreamBufferSize, true);
+                await using (filestream.ConfigureAwait(false))
                 {
-                    using (var filestream = _fileSystem.GetFileStream(fullCachePath, FileOpenMode.Create, FileAccessMode.Write, FileShareMode.Read, true))
-                    {
-                        await stream.CopyToAsync(filestream).ConfigureAwait(false);
-                    }
+                    await stream.CopyToAsync(filestream).ConfigureAwait(false);
                 }
-
-                Directory.CreateDirectory(Path.GetDirectoryName(pointerCachePath));
-                File.WriteAllText(pointerCachePath, fullCachePath);
             }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(pointerCachePath));
+            File.WriteAllText(pointerCachePath, fullCachePath);
         }
 
         /// <summary>

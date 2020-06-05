@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Audio;
@@ -8,6 +9,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Services;
+using Microsoft.Extensions.Logging;
 
 namespace MediaBrowser.Api.Music
 {
@@ -41,7 +43,17 @@ namespace MediaBrowser.Api.Music
         private readonly IDtoService _dtoService;
         private readonly IAuthorizationContext _authContext;
 
-        public AlbumsService(IUserManager userManager, IUserDataManager userDataRepository, ILibraryManager libraryManager, IItemRepository itemRepo, IDtoService dtoService, IAuthorizationContext authContext)
+        public AlbumsService(
+            ILogger<AlbumsService> logger,
+            IServerConfigurationManager serverConfigurationManager,
+            IHttpResultFactory httpResultFactory,
+            IUserManager userManager,
+            IUserDataManager userDataRepository,
+            ILibraryManager libraryManager,
+            IItemRepository itemRepo,
+            IDtoService dtoService,
+            IAuthorizationContext authContext)
+            : base(logger, serverConfigurationManager, httpResultFactory)
         {
             _userManager = userManager;
             _userDataRepository = userDataRepository;
@@ -104,16 +116,15 @@ namespace MediaBrowser.Api.Music
             var album2 = (MusicAlbum)item2;
 
             var artists1 = album1
-                .AllArtists
+                .GetAllArtists()
                 .DistinctNames()
                 .ToList();
 
-            var artists2 = album2
-                .AllArtists
-                .DistinctNames()
-                .ToDictionary(i => i, StringComparer.OrdinalIgnoreCase);
+            var artists2 = new HashSet<string>(
+                album2.GetAllArtists().DistinctNames(),
+                StringComparer.OrdinalIgnoreCase);
 
-            return points + artists1.Where(artists2.ContainsKey).Sum(i => 5);
+            return points + artists1.Where(artists2.Contains).Sum(i => 5);
         }
     }
 }

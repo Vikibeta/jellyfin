@@ -1,8 +1,13 @@
+#pragma warning disable CS1591
+
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Library;
@@ -19,8 +24,17 @@ namespace Emby.Server.Implementations.LiveTv.TunerHosts
         private readonly IHttpClient _httpClient;
         private readonly IServerApplicationHost _appHost;
 
-        public SharedHttpStream(MediaSourceInfo mediaSource, TunerHostInfo tunerHostInfo, string originalStreamId, IFileSystem fileSystem, IHttpClient httpClient, ILogger logger, IServerApplicationPaths appPaths, IServerApplicationHost appHost)
-            : base(mediaSource, tunerHostInfo, fileSystem, logger, appPaths)
+        public SharedHttpStream(
+            MediaSourceInfo mediaSource,
+            TunerHostInfo tunerHostInfo,
+            string originalStreamId,
+            IFileSystem fileSystem,
+            IHttpClient httpClient,
+            ILogger logger,
+            IConfigurationManager configurationManager,
+            IServerApplicationHost appHost,
+            IStreamHelper streamHelper)
+            : base(mediaSource, tunerHostInfo, fileSystem, logger, configurationManager, streamHelper)
         {
             _httpClient = httpClient;
             _appHost = appHost;
@@ -46,8 +60,7 @@ namespace Emby.Server.Implementations.LiveTv.TunerHosts
                 Url = url,
                 CancellationToken = CancellationToken.None,
                 BufferContent = false,
-
-                EnableHttpCompression = false,
+                DecompressionMethod = CompressionMethods.None
             };
 
             foreach (var header in mediaSource.RequiredHttpHeaders)
@@ -55,7 +68,7 @@ namespace Emby.Server.Implementations.LiveTv.TunerHosts
                 httpRequestOptions.RequestHeaders[header.Key] = header.Value;
             }
 
-            var response = await _httpClient.SendAsync(httpRequestOptions, "GET").ConfigureAwait(false);
+            var response = await _httpClient.SendAsync(httpRequestOptions, HttpMethod.Get).ConfigureAwait(false);
 
             var extension = "ts";
             var requiresRemux = false;
@@ -94,7 +107,7 @@ namespace Emby.Server.Implementations.LiveTv.TunerHosts
             //OpenedMediaSource.Path = tempFile;
             //OpenedMediaSource.ReadAtNativeFramerate = true;
 
-            MediaSource.Path = _appHost.GetLocalApiUrl("127.0.0.1") + "/LiveTv/LiveStreamFiles/" + UniqueId + "/stream.ts";
+            MediaSource.Path = _appHost.GetLoopbackHttpApiUrl() + "/LiveTv/LiveStreamFiles/" + UniqueId + "/stream.ts";
             MediaSource.Protocol = MediaProtocol.Http;
 
             //OpenedMediaSource.Path = TempFilePath;
@@ -106,6 +119,17 @@ namespace Emby.Server.Implementations.LiveTv.TunerHosts
             //OpenedMediaSource.SupportsDirectStream = true;
             //OpenedMediaSource.SupportsTranscoding = true;
             await taskCompletionSource.Task.ConfigureAwait(false);
+            if (taskCompletionSource.Task.Exception != null)
+            {
+                // Error happened while opening the stream so raise the exception again to inform the caller
+                throw taskCompletionSource.Task.Exception;
+            }
+
+            if (!taskCompletionSource.Task.Result)
+            {
+                Logger.LogWarning("Zero bytes copied from stream {0} to {1} but no exception raised", GetType().Name, TempFilePath);
+                throw new EndOfStreamException(String.Format(CultureInfo.InvariantCulture, "Zero bytes copied from stream {0}", GetType().Name));
+            }
         }
 
         private Task StartStreaming(HttpResponseInfo response, TaskCompletionSource<bool> openTaskCompletionSource, CancellationToken cancellationToken)
@@ -117,18 +141,29 @@ namespace Emby.Server.Implementations.LiveTv.TunerHosts
                     Logger.LogInformation("Beginning {0} stream to {1}", GetType().Name, TempFilePath);
                     using (response)
                     using (var stream = response.Content)
-                    using (var fileStream = FileSystem.GetFileStream(TempFilePath, FileOpenMode.Create, FileAccessMode.Write, FileShareMode.Read, FileOpenOptions.None))
+                    using (var fileStream = new FileStream(TempFilePath, FileMode.Create, FileAccess.Write, FileShare.Read))
                     {
-                        await ApplicationHost.StreamHelper.CopyToAsync(stream, fileStream, 81920, () => Resolve(openTaskCompletionSource), cancellationToken).ConfigureAwait(false);
+                        await StreamHelper.CopyToAsync(
+                            stream,
+                            fileStream,
+                            IODefaults.CopyToBufferSize,
+                            () => Resolve(openTaskCompletionSource),
+                            cancellationToken).ConfigureAwait(false);
                     }
                 }
-                catch (OperationCanceledException)
+                catch (OperationCanceledException ex)
                 {
+                    Logger.LogInformation("Copying of {0} to {1} was canceled", GetType().Name, TempFilePath);
+                    openTaskCompletionSource.TrySetException(ex);
                 }
                 catch (Exception ex)
                 {
-                    Logger.LogError(ex, "Error copying live stream.");
+                    Logger.LogError(ex, "Error copying live stream {0} to {1}.", GetType().Name, TempFilePath);
+                    openTaskCompletionSource.TrySetException(ex);
                 }
+
+                openTaskCompletionSource.TrySetResult(false);
+
                 EnableStreamSharing = false;
                 await DeleteTempFiles(new List<string> { TempFilePath }).ConfigureAwait(false);
             });

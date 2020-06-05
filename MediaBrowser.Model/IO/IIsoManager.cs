@@ -1,3 +1,5 @@
+#pragma warning disable CS1591
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -6,7 +8,7 @@ using System.Threading.Tasks;
 
 namespace MediaBrowser.Model.IO
 {
-    public interface IIsoManager : IDisposable
+    public interface IIsoManager
     {
         /// <summary>
         /// Mounts the specified iso path.
@@ -14,7 +16,6 @@ namespace MediaBrowser.Model.IO
         /// <param name="isoPath">The iso path.</param>
         /// <param name="cancellationToken">The cancellation token.</param>
         /// <returns>IsoMount.</returns>
-        /// <exception cref="ArgumentNullException">isoPath</exception>
         /// <exception cref="IOException">Unable to create mount.</exception>
         Task<IIsoMount> Mount(string isoPath, CancellationToken cancellationToken);
 

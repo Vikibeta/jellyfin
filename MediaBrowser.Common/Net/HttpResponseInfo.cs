@@ -1,15 +1,28 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Net;
+using System.Net.Http.Headers;
 
 namespace MediaBrowser.Common.Net
 {
     /// <summary>
-    /// Class HttpResponseInfo
+    /// Class HttpResponseInfo.
     /// </summary>
-    public class HttpResponseInfo : IDisposable
+    public sealed class HttpResponseInfo : IDisposable
     {
+#pragma warning disable CS1591
+        public HttpResponseInfo()
+        {
+        }
+
+        public HttpResponseInfo(HttpResponseHeaders headers, HttpContentHeaders contentHeader)
+        {
+            Headers = headers;
+            ContentHeaders = contentHeader;
+        }
+
+#pragma warning restore CS1591
+
         /// <summary>
         /// Gets or sets the type of the content.
         /// </summary>
@@ -50,26 +63,18 @@ namespace MediaBrowser.Common.Net
         /// Gets or sets the headers.
         /// </summary>
         /// <value>The headers.</value>
-        public Dictionary<string, string> Headers { get; set; }
+        public HttpResponseHeaders Headers { get; set; }
 
-        private readonly IDisposable _disposable;
+        /// <summary>
+        /// Gets or sets the content headers.
+        /// </summary>
+        /// <value>The content headers.</value>
+        public HttpContentHeaders ContentHeaders { get; set; }
 
-        public HttpResponseInfo(IDisposable disposable)
-        {
-            _disposable = disposable;
-            Headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        }
-        public HttpResponseInfo()
-        {
-            Headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        }
-
+        /// <inheritdoc />
         public void Dispose()
         {
-            if (_disposable != null)
-            {
-                _disposable.Dispose();
-            }
+            // backwards compatibility
         }
     }
 }

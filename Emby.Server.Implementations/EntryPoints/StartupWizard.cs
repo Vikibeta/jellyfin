@@ -2,64 +2,80 @@ using System.Threading.Tasks;
 using Emby.Server.Implementations.Browser;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Configuration;
+using MediaBrowser.Controller.Extensions;
 using MediaBrowser.Controller.Plugins;
-using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Configuration;
 
 namespace Emby.Server.Implementations.EntryPoints
 {
     /// <summary>
-    /// Class StartupWizard
+    /// Class StartupWizard.
     /// </summary>
-    public class StartupWizard : IServerEntryPoint
+    public sealed class StartupWizard : IServerEntryPoint
     {
-        /// <summary>
-        /// The _app host
-        /// </summary>
         private readonly IServerApplicationHost _appHost;
+        private readonly IConfiguration _appConfig;
+        private readonly IServerConfigurationManager _config;
+        private readonly IStartupOptions _startupOptions;
+
         /// <summary>
-        /// The _user manager
+        /// Initializes a new instance of the <see cref="StartupWizard"/> class.
         /// </summary>
-        private readonly ILogger _logger;
-
-        private IServerConfigurationManager _config;
-
-        public StartupWizard(IServerApplicationHost appHost, ILogger logger, IServerConfigurationManager config)
+        /// <param name="appHost">The application host.</param>
+        /// <param name="appConfig">The application configuration.</param>
+        /// <param name="config">The configuration manager.</param>
+        /// <param name="startupOptions">The application startup options.</param>
+        public StartupWizard(
+            IServerApplicationHost appHost,
+            IConfiguration appConfig,
+            IServerConfigurationManager config,
+            IStartupOptions startupOptions)
         {
             _appHost = appHost;
-            _logger = logger;
+            _appConfig = appConfig;
             _config = config;
+            _startupOptions = startupOptions;
         }
 
-        /// <summary>
-        /// Runs this instance.
-        /// </summary>
+        /// <inheritdoc />
         public Task RunAsync()
         {
-            if (!_appHost.CanLaunchWebBrowser)
-            {
-                return Task.CompletedTask;
-            }
-
-            if (!_config.Configuration.IsStartupWizardCompleted)
-            {
-                BrowserLauncher.OpenWebApp(_appHost);
-            }
-            else if (_config.Configuration.AutoRunWebApp)
-            {
-                var options = ((ApplicationHost)_appHost).StartupOptions;
-
-                if (!options.NoAutoRunWebApp)
-                {
-                    BrowserLauncher.OpenWebApp(_appHost);
-                }
-            }
-
+            Run();
             return Task.CompletedTask;
         }
 
-        /// <summary>
-        /// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
-        /// </summary>
+        private void Run()
+        {
+            if (!_appHost.CanLaunchWebBrowser)
+            {
+                return;
+            }
+
+            // Always launch the startup wizard if possible when it has not been completed
+            if (!_config.Configuration.IsStartupWizardCompleted && _appConfig.HostWebClient())
+            {
+                BrowserLauncher.OpenWebApp(_appHost);
+                return;
+            }
+
+            // Do nothing if the web app is configured to not run automatically
+            if (!_config.Configuration.AutoRunWebApp || _startupOptions.NoAutoRunWebApp)
+            {
+                return;
+            }
+
+            // Launch the swagger page if the web client is not hosted, otherwise open the web client
+            if (_appConfig.HostWebClient())
+            {
+                BrowserLauncher.OpenWebApp(_appHost);
+            }
+            else
+            {
+                BrowserLauncher.OpenSwaggerPage(_appHost);
+            }
+        }
+
+        /// <inheritdoc />
         public void Dispose()
         {
         }

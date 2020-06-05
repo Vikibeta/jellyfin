@@ -1,9 +1,13 @@
+#nullable disable
+#pragma warning disable CS1591
+
 using System;
+using System.Collections.Generic;
 
 namespace MediaBrowser.Model.Search
 {
     /// <summary>
-    /// Class SearchHintResult
+    /// Class SearchHintResult.
     /// </summary>
     public class SearchHint
     {
@@ -111,6 +115,7 @@ namespace MediaBrowser.Model.Search
         /// </summary>
         /// <value>The album.</value>
         public string Album { get; set; }
+
         public Guid AlbumId { get; set; }
 
         /// <summary>
@@ -123,7 +128,7 @@ namespace MediaBrowser.Model.Search
         /// Gets or sets the artists.
         /// </summary>
         /// <value>The artists.</value>
-        public string[] Artists { get; set; }
+        public IReadOnlyList<string> Artists { get; set; }
 
         /// <summary>
         /// Gets or sets the song count.

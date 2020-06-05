@@ -1,9 +1,13 @@
+#pragma warning disable CS1591
+
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using System.Text.Json.Serialization;
 
 namespace Emby.Server.Implementations.Services
 {
@@ -28,6 +32,13 @@ namespace Emby.Server.Implementations.Services
         private readonly bool[] isWildcard;
         private readonly int wildcardCount = 0;
 
+        internal static string[] IgnoreAttributesNamed = new[]
+        {
+            nameof(JsonIgnoreAttribute)
+        };
+
+        private static Type _excludeType = typeof(Stream);
+
         public int VariableArgsCount { get; set; }
 
         /// <summary>
@@ -37,8 +48,8 @@ namespace Emby.Server.Implementations.Services
         public int PathComponentsCount { get; set; }
 
         /// <summary>
-        /// The total number of segments after subparts have been exploded ('.')
-        /// e.g. /path/to/here.ext == 4
+        /// Gets or sets the total number of segments after subparts have been exploded ('.')
+        /// e.g. /path/to/here.ext == 4.
         /// </summary>
         public int TotalComponentsCount { get; set; }
 
@@ -190,21 +201,12 @@ namespace Emby.Server.Implementations.Services
                     StringComparer.OrdinalIgnoreCase);
         }
 
-        internal static string[] IgnoreAttributesNamed = new[]
-        {
-            "IgnoreDataMemberAttribute",
-            "JsonIgnoreAttribute"
-        };
-
-
-        private static Type excludeType = typeof(Stream);
-
         internal static IEnumerable<PropertyInfo> GetSerializableProperties(Type type)
         {
             foreach (var prop in GetPublicProperties(type))
             {
                 if (prop.GetMethod == null
-                    || excludeType == prop.PropertyType)
+                    || _excludeType == prop.PropertyType)
                 {
                     continue;
                 }
@@ -280,7 +282,7 @@ namespace Emby.Server.Implementations.Services
         }
 
         /// <summary>
-        /// Provide for quick lookups based on hashes that can be determined from a request url
+        /// Provide for quick lookups based on hashes that can be determined from a request url.
         /// </summary>
         public string FirstMatchHashKey { get; private set; }
 
@@ -437,9 +439,12 @@ namespace Emby.Server.Implementations.Services
                     && requestComponents.Length >= this.TotalComponentsCount - this.wildcardCount;
 
                 if (!isValidWildCardPath)
-                    throw new ArgumentException(string.Format(
-                        "Path Mismatch: Request Path '{0}' has invalid number of components compared to: '{1}'",
-                        pathInfo, this.restPath));
+                    throw new ArgumentException(
+                        string.Format(
+                            CultureInfo.InvariantCulture,
+                            "Path Mismatch: Request Path '{0}' has invalid number of components compared to: '{1}'",
+                            pathInfo,
+                            this.restPath));
             }
 
             var requestKeyValuesMap = new Dictionary<string, string>();
